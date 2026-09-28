@@ -16,10 +16,11 @@ MCP = ROOT / "platform" / "mcp-server"
 
 
 def _tsx(pkg: Path) -> list[str]:
-    tsx = pkg / "node_modules" / ".bin" / "tsx"
+    # Run tsx's entry script with node: .bin/tsx is a shell script on Windows.
+    tsx = pkg / "node_modules" / "tsx" / "dist" / "cli.mjs"
     if not tsx.exists():
         pytest.skip(f"run `npm install` in {pkg} first")
-    return [str(tsx)]
+    return [shutil.which("node") or "node", str(tsx)]
 
 
 @pytest.fixture(scope="module")

@@ -26,10 +26,13 @@ export function table(rows: any[], columns: string[]) {
   for (const r of rows) console.log(line(columns.map((c) => cell(r[c]))));
 }
 
-export function fail(err: unknown): never {
+// Only called once a command has finished. Sets the exit code instead of calling
+// process.exit(): exiting while fetch sockets are still closing crashes Node on
+// Windows (libuv "UV_HANDLE_CLOSING" assertion) instead of exiting with 1.
+export function fail(err: unknown): void {
   const e = err as { message?: string; status?: number };
   console.error(red(`✗ ${e.message ?? String(err)}`) + (e.status ? dim(` (HTTP ${e.status})`) : ''));
-  process.exit(1);
+  process.exitCode = 1;
 }
 
 export async function readStdin(): Promise<string> {

@@ -166,6 +166,9 @@ The suite in `tests/` talks to a running stack over HTTP/WebSocket — it does n
 cp .env.example .env         # fill the secrets with: make generate-secrets
 # For the full suite also set, in .env:
 #   AUTH_DEV_MAILBOX=true      (lets tests read verification / reset emails)
+#   LOGIN_RATE_LIMIT_MAX=1000  (the suite logs in many times from one IP; default is 10)
+# On Docker Desktop (Windows/macOS) also set:
+#   NODE_EXPORTER_ROOT_PROPAGATION=   (empty — Docker Desktop rejects "rslave")
 make up
 make test-deps
 make test-all
@@ -173,13 +176,18 @@ make test-all
 
 By default tests go through the Caddy gateway at `http://localhost`. To point them elsewhere set `ODB_BASE_URL`, or per-service `ODB_API_URL`, `ODB_AUTH_URL`, `ODB_REST_URL`, `ODB_STORAGE_URL`, `ODB_REALTIME_URL`, `ODB_FUNCTIONS_URL`, `ODB_DASHBOARD_URL`.
 
-A few tests need something extra and **skip** (not fail) without it:
+A few tests need something extra and **skip** (not fail) without it. `.env.example` has the exact values, commented out:
 
 | Test | Needs |
 |---|---|
 | email verification / reset / OTP | `AUTH_DEV_MAILBOX=true` |
-| OAuth login flow | `OAUTH_GITHUB_*_URL` pointing at the mock provider the test starts on port 9911 |
-| webhook delivery | `WEBHOOK_ALLOW_PRIVATE=true` and `ODB_WEBHOOK_HOST` = an address the queue-worker can reach |
+| OAuth login flow | `OAUTH_GITHUB_*_URL` pointing at the mock provider the test starts on port 9911 (authorize URL via `localhost`, token/user URLs via `host.docker.internal` on Docker Desktop) |
+| webhook delivery | `WEBHOOK_ALLOW_PRIVATE=true` and `ODB_WEBHOOK_HOST` = an address the queue-worker can reach (`host.docker.internal` on Docker Desktop) |
+| CLI and MCP server | `npm install` in `platform/cli` and `platform/mcp-server` |
+
+Service `/metrics` endpoints are internal-only (not routed by Caddy); the observability tests check them through Prometheus via `GET /api/observability/metrics`.
+
+**Windows without `make`:** the targets are thin wrappers, so run them directly — load `.env` into the shell (Git Bash: `set -a; . ./.env; set +a`), then `docker compose up -d --build`, `pip install -r tests/requirements.txt && python -m playwright install chromium`, and `python -m pytest tests`. After pulling dependency changes use `--build` (or `make build`): `up -d` alone reuses old images.
 
 Playwright screenshots are saved in `tests/e2e/screenshots/`.
 

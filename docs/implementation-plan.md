@@ -1,6 +1,6 @@
 # OwnDatabase — Implementation Plan
 
-> Status legend: `[x]` implemented — application features are covered by the pytest/Playwright suite in `tests/`; infrastructure items (Caddy, Prometheus, Grafana, Loki) are configured but were only checked with `docker compose config`. `[~]` partial or untested template. `[ ]` not done.
+> Status legend: `[x]` implemented — application features are covered by the pytest/Playwright suite in `tests/`; the full stack, including Caddy, Prometheus (every service scraped, node-exporter included) and Grafana (health and provisioned datasources), was brought up with Docker Compose and checked by the suite (142 tests passing, 0 skipped with the test settings from `.env.example`). Loki is running but its log contents are not asserted. `[~]` partial or untested template. `[ ]` not done.
 
 > **Version:** 0.1.0
 

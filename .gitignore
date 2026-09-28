@@ -44,3 +44,6 @@ __pycache__/
 .pytest_cache/
 test-results/
 playwright-report/
+
+# Playwright screenshots from tests/e2e
+tests/e2e/screenshots/
