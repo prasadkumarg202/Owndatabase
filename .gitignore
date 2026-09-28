@@ -1,0 +1,46 @@
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+dist/
+.next/
+out/
+build/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Testing
+coverage/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker data (managed by Docker volumes)
+data/
+
+# Backups (tracked separately if needed)
+backups/
+
+# Secrets
+*.pem
+*.key
+*.crt
+
+# Python / test runs
+__pycache__/
+*.pyc
+.pytest_cache/
+test-results/
+playwright-report/

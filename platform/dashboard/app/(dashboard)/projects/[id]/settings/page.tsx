@@ -1,0 +1,175 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus, Trash2 } from 'lucide-react';
+import { api, formatDate, timeAgo } from '@/lib/api';
+import { useProject, useProjectId } from '@/lib/hooks';
+import { Card, ErrorBox, PageHeader, Tabs } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Modal } from '@/components/ui/Modal';
+import { Badge } from '@/components/ui/Badge';
+import { DataTable } from '@/components/ui/DataTable';
+import { CopyField } from '@/components/ui/CopyField';
+import { useToast } from '@/components/ui/Toast';
+
+function General({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const router = useRouter();
+  const { data: p } = useProject(id);
+  const [name, setName] = useState('');
+  useEffect(() => { if (p) setName(p.name); }, [p]);
+  const save = useMutation({ mutationFn: () => api.patch(`/projects/${id}`, { name }), onSuccess: () => { toast.success('Saved'); qc.invalidateQueries({ queryKey: ['project', id] }); qc.invalidateQueries({ queryKey: ['projects'] }); } });
+  const pause = useMutation({ mutationFn: (a: string) => api.post(`/projects/${id}/${a}`), onSuccess: (r) => { toast.success(`Project ${r.status}`); qc.invalidateQueries({ queryKey: ['project', id] }); qc.invalidateQueries({ queryKey: ['projects'] }); } });
+  const del = useMutation({ mutationFn: () => api.delete(`/projects/${id}?confirm=${p.slug}`), onSuccess: () => { toast.success('Project deleted'); qc.invalidateQueries({ queryKey: ['projects'] }); router.push('/projects'); }, onError: (e) => toast.error(e) });
+  if (!p) return null;
+  return (
+    <div className="space-y-6">
+      <Card title="General">
+        <div className="grid gap-3 md:grid-cols-2">
+          <Input label="Project name" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input label="Slug" value={p.slug} disabled />
+          <Input label="Project ID" value={p.id} disabled />
+          <Input label="Database schema" value={p.db_schema} disabled />
+        </div>
+        <Button className="mt-3" onClick={() => save.mutate()} loading={save.isPending}>Save</Button>
+      </Card>
+      <Card title="Danger zone" className="border-red-200">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-3">
+          <div><p className="text-sm font-medium">{p.status === 'paused' ? 'Resume project' : 'Pause project'}</p><p className="text-xs text-gray-500">Paused projects reject all REST, auth, storage and realtime requests.</p></div>
+          <Button variant="secondary" onClick={() => pause.mutate(p.status === 'paused' ? 'resume' : 'pause')} data-testid="pause-project">{p.status === 'paused' ? 'Resume' : 'Pause'}</Button>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-3">
+          <div><p className="text-sm font-medium text-red-700">Delete project</p><p className="text-xs text-gray-500">Deletes the schema, users, files metadata and keys. This cannot be undone.</p></div>
+          <Button variant="danger" onClick={() => { if (prompt(`Type ${p.slug} to delete this project`) === p.slug) del.mutate(); }}>Delete project</Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function Keys({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: '', type: 'anon' });
+  const [created, setCreated] = useState<any>(null);
+  const keys = useQuery({ queryKey: ['keys', id], queryFn: () => api.get(`/keys?project_id=${id}`).then((r) => r.data as any[]) });
+  const create = useMutation({ mutationFn: () => api.post('/keys', { project_id: id, ...form }), onSuccess: (r) => { setCreated(r); setOpen(false); qc.invalidateQueries({ queryKey: ['keys', id] }); } });
+  const revoke = useMutation({ mutationFn: (k: string) => api.delete(`/keys/${k}`), onSuccess: () => { toast.success('Key revoked'); qc.invalidateQueries({ queryKey: ['keys', id] }); } });
+  return (
+    <Card title="API keys" description="anon keys are safe in browsers (RLS applies). service_role keys bypass RLS — keep them on servers."
+      actions={<Button size="sm" onClick={() => setOpen(true)} data-testid="new-key"><Plus className="h-3.5 w-3.5" />New key</Button>} bodyClassName="p-0">
+      <DataTable testId="keys-table" data={keys.data} columns={[
+        { key: 'name', label: 'Name' }, { key: 'type', label: 'Type', render: (k: any) => <Badge tone={k.type === 'anon' ? 'blue' : 'purple'}>{k.type}</Badge> },
+        { key: 'key_prefix', label: 'Key', render: (k: any) => <code className="text-xs">{k.key_prefix}…</code> },
+        { key: 'is_active', label: 'Status', render: (k: any) => k.is_active ? <Badge tone="green">active</Badge> : <Badge tone="red">revoked</Badge> },
+        { key: 'last_used_at', label: 'Last used', render: (k: any) => timeAgo(k.last_used_at) },
+        { key: 'created_at', label: 'Created', render: (k: any) => formatDate(k.created_at, false) },
+        { key: 'x', label: '', render: (k: any) => k.is_active && <Button size="sm" variant="ghost" onClick={() => { if (confirm(`Revoke ${k.name}? Apps using it stop working.`)) revoke.mutate(k.id); }}>Revoke</Button> },
+      ]} />
+      <Modal open={open} onClose={() => setOpen(false)} title="Create API key"
+        footer={<><Button variant="secondary" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={() => create.mutate()} loading={create.isPending} disabled={!form.name} data-testid="create-key">Create</Button></>}>
+        <div className="space-y-3">
+          <ErrorBox error={create.error} />
+          <Input label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Mobile app" />
+          <Select label="Type" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} options={[{ value: 'anon', label: 'anon — public, RLS applies' }, { value: 'service_role', label: 'service_role — server only, bypasses RLS' }]} />
+        </div>
+      </Modal>
+      <Modal open={!!created} onClose={() => setCreated(null)} title="Key created">
+        {created && <div className="space-y-2"><p className="text-sm text-amber-700">Copy this key now. It will not be shown again.</p><CopyField value={created.key} testId="new-key-value" /></div>}
+      </Modal>
+    </Card>
+  );
+}
+
+function Secrets({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [form, setForm] = useState({ name: '', value: '' });
+  const secrets = useQuery({ queryKey: ['secrets', id], queryFn: () => api.get(`/secrets?project_id=${id}`).then((r) => r.data as any[]) });
+  const save = useMutation({ mutationFn: () => api.post('/secrets', { project_id: id, ...form }), onSuccess: (r) => { toast.success(`${r.name} saved (v${r.version})`); setForm({ name: '', value: '' }); qc.invalidateQueries({ queryKey: ['secrets', id] }); } });
+  const del = useMutation({ mutationFn: (sid: string) => api.delete(`/secrets/${sid}`), onSuccess: () => qc.invalidateQueries({ queryKey: ['secrets', id] }), onError: (e) => toast.error(e) });
+  return (
+    <Card title="Secrets" description="Encrypted with AES-256-GCM. Functions read them from req.env. Values can never be viewed again." bodyClassName="p-0">
+      <DataTable testId="secrets-table" data={secrets.data} empty="No secrets" columns={[
+        { key: 'name', label: 'Name', render: (s: any) => <code>{s.name}</code> }, { key: 'version', label: 'Version' },
+        { key: 'updated_at', label: 'Updated', render: (s: any) => formatDate(s.updated_at) },
+        { key: 'x', label: '', render: (s: any) => <button aria-label="Delete secret" className="p-1 text-gray-400 hover:text-red-600" onClick={() => del.mutate(s.id)}><Trash2 className="h-3.5 w-3.5" /></button> },
+      ]} />
+      <form className="flex flex-wrap items-end gap-2 border-t border-gray-200 p-3" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+        <div className="w-56"><Input label="Name" placeholder="STRIPE_KEY" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value.toUpperCase() })} /></div>
+        <div className="w-72"><Input label="Value" type="password" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /></div>
+        <Button type="submit" disabled={!form.name || !form.value} loading={save.isPending} data-testid="save-secret">Save secret</Button>
+        <ErrorBox error={save.error} />
+      </form>
+    </Card>
+  );
+}
+
+function DatabaseSettings({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [reveal, setReveal] = useState(false);
+  const conn = useQuery({ queryKey: ['connection', id], queryFn: () => api.get(`/projects/${id}/connection`), enabled: reveal });
+  const ext = useQuery({ queryKey: ['extensions', id], queryFn: () => api.get(`/projects/${id}/extensions`).then((r) => r.data as any[]) });
+  const roles = useQuery({ queryKey: ['roles', id], queryFn: () => api.get(`/projects/${id}/roles`).then((r) => r.data as any[]) });
+  const toggleExt = useMutation({
+    mutationFn: (e: any) => e.installed ? api.delete(`/projects/${id}/extensions/${e.name}`) : api.post(`/projects/${id}/extensions`, { name: e.name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['extensions', id] }), onError: (e) => toast.error(e),
+  });
+  const [role, setRole] = useState({ name: '', can_login: false, password: '' });
+  const createRole = useMutation({ mutationFn: () => api.post(`/projects/${id}/roles`, { ...role, password: role.can_login ? role.password : undefined }), onSuccess: () => { toast.success('Role created'); setRole({ name: '', can_login: false, password: '' }); qc.invalidateQueries({ queryKey: ['roles', id] }); }, onError: (e) => toast.error(e) });
+  const dropRole = useMutation({ mutationFn: (n: string) => api.delete(`/projects/${id}/roles/${n}`), onSuccess: () => qc.invalidateQueries({ queryKey: ['roles', id] }), onError: (e) => toast.error(e) });
+  return (
+    <div className="space-y-6">
+      <Card title="Direct connection" description="Connect with psql or any PostgreSQL client. This role can only access the project schema.">
+        {!reveal ? <Button variant="secondary" onClick={() => setReveal(true)}>Show connection details</Button> : conn.data ? (
+          <div className="space-y-2">
+            <CopyField label="Connection string" value={conn.data.connection_string} secret />
+            <p className="text-xs text-gray-500">{conn.data.note}</p>
+          </div>
+        ) : <ErrorBox error={conn.error} />}
+      </Card>
+      <Card title="Extensions" description="Extensions are installed database-wide (shared by all projects on this server)." bodyClassName="p-0">
+        <DataTable data={ext.data} rowKey={(e: any) => e.name} columns={[
+          { key: 'name', label: 'Extension', render: (e: any) => <code>{e.name}</code> }, { key: 'comment', label: 'Description' },
+          { key: 'installed_version', label: 'Version' },
+          { key: 'x', label: '', render: (e: any) => e.available === false ? <Badge>not available</Badge> : <label className="flex items-center gap-2 text-xs"><input type="checkbox" aria-label={`Enable ${e.name}`} checked={e.installed} onChange={() => toggleExt.mutate(e)} />{e.installed ? 'enabled' : 'disabled'}</label> },
+        ]} />
+      </Card>
+      <Card title="Database roles" bodyClassName="p-0">
+        <DataTable data={roles.data} rowKey={(r: any) => r.name} columns={[
+          { key: 'name', label: 'Role', render: (r: any) => <code>{r.name}</code> }, { key: 'kind', label: 'Kind', render: (r: any) => <Badge>{r.kind}</Badge> },
+          { key: 'can_login', label: 'Login' }, { key: 'bypass_rls', label: 'Bypass RLS' },
+          { key: 'x', label: '', render: (r: any) => r.kind === 'custom' && <button aria-label="Drop role" className="p-1 text-gray-400 hover:text-red-600" onClick={() => dropRole.mutate(r.name)}><Trash2 className="h-3.5 w-3.5" /></button> },
+        ]} />
+        <form className="flex flex-wrap items-end gap-2 border-t border-gray-200 p-3" onSubmit={(e) => { e.preventDefault(); createRole.mutate(); }}>
+          <div className="w-48"><Input label="New role name" placeholder="readonly" value={role.name} onChange={(e) => setRole({ ...role, name: e.target.value.toLowerCase() })} /></div>
+          <label className="mb-2 flex items-center gap-1 text-xs"><input type="checkbox" checked={role.can_login} onChange={(e) => setRole({ ...role, can_login: e.target.checked })} />Can log in</label>
+          {role.can_login && <div className="w-56"><Input label="Password (12+ chars)" type="password" value={role.password} onChange={(e) => setRole({ ...role, password: e.target.value })} /></div>}
+          <Button type="submit" size="sm" disabled={!role.name}>Create read-only role</Button>
+        </form>
+      </Card>
+    </div>
+  );
+}
+
+export default function SettingsPage() {
+  const id = useProjectId();
+  const [tab, setTab] = useState('general');
+  return (
+    <div>
+      <PageHeader title="Project settings" />
+      <Tabs active={tab} onChange={setTab} tabs={[{ id: 'general', label: 'General' }, { id: 'keys', label: 'API keys' }, { id: 'secrets', label: 'Secrets' }, { id: 'database', label: 'Database' }]} />
+      {tab === 'general' && <General id={id} />}
+      {tab === 'keys' && <Keys id={id} />}
+      {tab === 'secrets' && <Secrets id={id} />}
+      {tab === 'database' && <DatabaseSettings id={id} />}
+    </div>
+  );
+}

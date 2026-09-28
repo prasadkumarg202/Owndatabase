@@ -1,0 +1,108 @@
+# OwnDatabase — Caddyfile
+#
+# In development: serves localhost with HTTP
+# In production: set DOMAIN to your real domain for automatic HTTPS
+#
+# All internal services are proxied through Caddy.
+# No internal service port is exposed publicly.
+
+{
+    # Global options
+    admin off
+    email admin@{$DOMAIN:localhost}
+
+    # Uncomment for production HTTPS with Let's Encrypt:
+    # acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Local development: HTTP only
+# ─────────────────────────────────────────────────────────────────────────────
+
+:80 {
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    # ── Control API ──────────────────────────────────────────────────────────
+    handle /api/* {
+        reverse_proxy control-api:3000 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # ── Auth Service ─────────────────────────────────────────────────────────
+    handle_path /auth/* {
+        reverse_proxy auth-service:3002 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # ── REST API ─────────────────────────────────────────────────────────────
+    handle_path /rest/* {
+        reverse_proxy api-service:3003 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # ── Functions (served by the data API, path kept) ────────────────────────
+    handle /functions/* {
+        reverse_proxy api-service:3003 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # ── Realtime (WebSocket) ─────────────────────────────────────────────────
+    handle /realtime* {
+        reverse_proxy realtime-service:3004 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up Upgrade {http.request.header.Upgrade}
+            header_up Connection {http.request.header.Connection}
+        }
+    }
+
+    # ── Storage API ──────────────────────────────────────────────────────────
+    handle_path /storage/* {
+        request_body {
+            max_size 100MB
+        }
+        reverse_proxy storage-api:3005 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # ── Grafana (monitoring) ─────────────────────────────────────────────────
+    handle /grafana/* {
+        reverse_proxy grafana:3000 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+        }
+    }
+
+    # ── Dashboard (catch-all) ────────────────────────────────────────────────
+    handle {
+        reverse_proxy dashboard:3001 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+}

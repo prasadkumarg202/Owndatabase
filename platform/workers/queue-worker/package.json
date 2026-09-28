@@ -1,0 +1,27 @@
+{
+  "name": "@owndatabase/queue-worker",
+  "version": "0.2.0",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "bullmq": "^5.12.0",
+    "ioredis": "^5.3.2",
+    "postgres": "^3.4.4",
+    "pino": "^9.2.0",
+    "prom-client": "^15.1.3",
+    "jose": "^5.2.0",
+    "nodemailer": "^6.9.14"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.3",
+    "@types/nodemailer": "^6.4.15"
+  },
+  "type": "module",
+  "private": true
+}

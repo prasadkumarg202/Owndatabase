@@ -1,0 +1,163 @@
+groups:
+  - name: owndatabase.database
+    interval: 30s
+    rules:
+
+      - alert: PostgreSQLDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL instance has been unreachable for more than 1 minute."
+
+      - alert: PostgreSQLHighConnections
+        expr: pg_stat_activity_count > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High PostgreSQL connection count"
+          description: "PostgreSQL has {{ $value }} active connections (threshold: 80)."
+
+      - alert: PostgreSQLSlowQueries
+        expr: rate(pg_stat_activity_max_tx_duration{state="active"}[5m]) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow queries detected"
+          description: "Long-running queries detected in PostgreSQL."
+
+      - alert: PostgreSQLDeadlocks
+        expr: rate(pg_stat_database_deadlocks[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL deadlocks detected"
+          description: "Deadlocks detected in PostgreSQL."
+
+      - alert: PostgreSQLDiskUsageHigh
+        expr: pg_database_size_bytes > 10 * 1024 * 1024 * 1024
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL database size exceeds 10GB"
+          description: "Database size is {{ $value | humanize1024 }}."
+
+  - name: owndatabase.redis
+    interval: 30s
+    rules:
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis instance has been unreachable for more than 1 minute."
+
+      - alert: RedisHighMemory
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis is using {{ $value | humanizePercentage }} of available memory."
+
+  - name: owndatabase.api
+    interval: 15s
+    rules:
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High API error rate"
+          description: "API error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency (p95 > 2s)"
+          description: "95th percentile latency is {{ $value }}s."
+
+  - name: owndatabase.host
+    interval: 30s
+    rules:
+      - alert: HostHighCpu
+        expr: 100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "CPU usage above 85%"
+          description: "Average CPU usage has been {{ $value | humanize }}% for 10 minutes."
+      - alert: HostHighMemory
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Memory usage above 90%"
+          description: "Only {{ $value | humanizePercentage }} of memory is in use."
+      - alert: HostDiskAlmostFull
+        expr: (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}) < 0.15
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Disk space below 15%"
+          description: "Root filesystem has {{ $value | humanizePercentage }} free."
+
+  - name: owndatabase.platform
+    interval: 30s
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~"control-api|auth-service|api-service|realtime-service|storage-api|queue-worker|cron-scheduler|backup-worker"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "Prometheus cannot scrape {{ $labels.job }} for 2 minutes."
+      - alert: BackupFailed
+        expr: increase(owndatabase_backup_jobs_total{type="backup",status="failed"}[1h]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: "A project backup failed"
+          description: "At least one backup failed in the last hour. Check the Backups page."
+      - alert: NoRecentBackup
+        expr: sum(increase(owndatabase_backup_jobs_total{type="backup",status="success"}[26h])) == 0
+        for: 1h
+        labels: { severity: warning }
+        annotations:
+          summary: "No successful backup in 26 hours"
+          description: "Scheduled backups may not be running."
+      - alert: PostgreSQLReplicationLag
+        expr: pg_replication_lag_seconds > 30
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Replica lag above 30s"
+          description: "Streaming replica is {{ $value }}s behind the primary."
+      - alert: PostgreSQLConnectionsNearLimit
+        expr: sum(pg_stat_activity_count) / max(pg_settings_max_connections) > 0.85
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "PostgreSQL connections above 85% of max_connections"
+          description: "Consider routing more traffic through PgBouncer."
+      - alert: QueueJobsFailing
+        expr: sum(rate(owndatabase_queue_jobs_total{status="failed"}[10m])) > 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Background jobs are failing"
+          description: "More than one failed job every 10 seconds; check the dead-letter queue."

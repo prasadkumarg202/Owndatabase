@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# OwnDatabase — Phase 10 HA template  (UNTESTED TEMPLATE — read docs/ha.md)
+#
+# Three Patroni-managed PostgreSQL 16 nodes (Spilo image) + a 3-node etcd DCS +
+# HAProxy that routes :5000 → current primary and :5001 → healthy replicas.
+#
+# This file was written as a starting point and has NOT been run end-to-end.
+# In production each pg node belongs on its own VPS; this single-host layout is
+# for rehearsing failover only.
+#
+#   docker compose -f infrastructure/ha/docker-compose.ha.yml up -d
+#   Then point DATABASE_URL at haproxy:5000 (writes) and READ_DATABASE_URL at haproxy:5001.
+# ─────────────────────────────────────────────────────────────────────────────
+x-etcd: &etcd
+  image: quay.io/coreos/etcd:v3.5.15
+  networks: [owndatabase-ha]
+  environment: &etcd-env
+    ETCD_INITIAL_CLUSTER: etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+    ETCD_INITIAL_CLUSTER_STATE: new
+    ETCD_INITIAL_CLUSTER_TOKEN: owndatabase-ha
+    ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+    ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+
+x-pg: &pg
+  image: ghcr.io/zalando/spilo-16:3.3-p2
+  networks: [owndatabase-ha]
+  depends_on: [etcd1, etcd2, etcd3]
+  environment: &pg-env
+    SCOPE: owndatabase
+    ETCDCTL_ENDPOINTS: http://etcd1:2379,http://etcd2:2379,http://etcd3:2379
+    ETCD3_HOSTS: "'etcd1:2379','etcd2:2379','etcd3:2379'"
+    PGVERSION: "16"
+    PGPASSWORD_SUPERUSER: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    PGPASSWORD_STANDBY: ${PATRONI_REPLICATION_PASSWORD:?set PATRONI_REPLICATION_PASSWORD}
+    PGPASSWORD_ADMIN: ${PATRONI_ADMIN_PASSWORD:?set PATRONI_ADMIN_PASSWORD}
+    SPILO_CONFIGURATION: |
+      bootstrap:
+        dcs:
+          ttl: 30
+          loop_wait: 10
+          maximum_lag_on_failover: 1048576
+          synchronous_mode: true
+          postgresql:
+            use_pg_rewind: true
+            parameters:
+              wal_level: replica
+              max_wal_senders: 10
+              max_replication_slots: 10
+              hot_standby: "on"
+              shared_preload_libraries: pg_stat_statements
+              pg_stat_statements.track: all
+              track_utility: "off"
+  healthcheck:
+    test: ["CMD", "curl", "-fsS", "http://localhost:8008/health"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+
+services:
+  etcd1: { <<: *etcd, hostname: etcd1, environment: { <<: *etcd-env, ETCD_NAME: etcd1, ETCD_INITIAL_ADVERTISE_PEER_URLS: "http://etcd1:2380", ETCD_ADVERTISE_CLIENT_URLS: "http://etcd1:2379" } }
+  etcd2: { <<: *etcd, hostname: etcd2, environment: { <<: *etcd-env, ETCD_NAME: etcd2, ETCD_INITIAL_ADVERTISE_PEER_URLS: "http://etcd2:2380", ETCD_ADVERTISE_CLIENT_URLS: "http://etcd2:2379" } }
+  etcd3: { <<: *etcd, hostname: etcd3, environment: { <<: *etcd-env, ETCD_NAME: etcd3, ETCD_INITIAL_ADVERTISE_PEER_URLS: "http://etcd3:2380", ETCD_ADVERTISE_CLIENT_URLS: "http://etcd3:2379" } }
+
+  pg1: { <<: *pg, hostname: pg1, volumes: [pg1_data:/home/postgres/pgdata] }
+  pg2: { <<: *pg, hostname: pg2, volumes: [pg2_data:/home/postgres/pgdata] }
+  pg3: { <<: *pg, hostname: pg3, volumes: [pg3_data:/home/postgres/pgdata] }
+
+  haproxy:
+    image: haproxy:2.9-alpine
+    networks: [owndatabase-ha]
+    depends_on: [pg1, pg2, pg3]
+    ports:
+      - "127.0.0.1:5000:5000"   # primary (read/write)
+      - "127.0.0.1:5001:5001"   # replicas (read-only)
+      - "127.0.0.1:7000:7000"   # stats page
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+
+volumes:
+  pg1_data:
+  pg2_data:
+  pg3_data:
+
+networks:
+  owndatabase-ha:
+    name: owndatabase-ha

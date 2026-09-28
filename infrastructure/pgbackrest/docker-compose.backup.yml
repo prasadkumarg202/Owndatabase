@@ -1,0 +1,21 @@
+services:
+  pgbackrest:
+    image: pgbackrest/pgbackrest:latest
+    container_name: owndatabase-pgbackrest
+    restart: unless-stopped
+    environment:
+      PGBACKREST_STANZA: owndatabase
+      PGBACKREST_REPO1_PATH: /var/lib/pgbackrest
+    volumes:
+      - ./infrastructure/pgbackrest/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      - pgbackrest_data:/var/lib/pgbackrest
+      - postgres_data:/var/lib/postgresql/data:ro
+    networks:
+      - owndatabase
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgbackrest_data:
+    name: owndatabase_pgbackrest_data

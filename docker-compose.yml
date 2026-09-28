@@ -1,0 +1,680 @@
+##############################################################################
+# OwnDatabase — Docker Compose Development Environment
+#
+# Usage:
+#   make up       — Start all services
+#   make down     — Stop all services
+#   make logs     — View logs
+#   make migrate  — Run database migrations
+#   make seed     — Seed sample data
+#
+# All services communicate on the internal `owndatabase` network.
+# No internal ports are exposed to the host except via Caddy.
+##############################################################################
+
+name: owndatabase
+
+services:
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # REVERSE PROXY — Caddy
+  # Routes all public traffic. Provides automatic HTTPS in production.
+  # ─────────────────────────────────────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: owndatabase-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+    networks:
+      - owndatabase
+    depends_on:
+      - control-api
+      - dashboard
+      - auth-service
+      - api-service
+      - realtime-service
+      - storage-api
+      - grafana
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DATABASE — PostgreSQL 16
+  # ─────────────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: owndatabase-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-owndatabase}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./infrastructure/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
+    command: >
+      postgres
+        -c config_file=/etc/postgresql/postgresql.conf
+        -c hba_file=/etc/postgresql/pg_hba.conf
+    networks:
+      - owndatabase
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-owndatabase}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # DO NOT expose port 5432 to host in production
+    # Uncomment ONLY for local development access from host tools:
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # CONNECTION POOLER — PgBouncer
+  # ─────────────────────────────────────────────────────────────────────────
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: owndatabase-pgbouncer
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-owndatabase}
+      LISTEN_PORT: "6432"
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CONN:-200}
+      DEFAULT_POOL_SIZE: ${PGBOUNCER_POOL_SIZE:-25}
+      ADMIN_USERS: ${POSTGRES_USER:-postgres}
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits
+    networks:
+      - owndatabase
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6432 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # CACHE + QUEUE — Redis 7
+  # ─────────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: owndatabase-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+        --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+        --appendonly yes
+        --appendfsync everysec
+        --maxmemory ${REDIS_MAX_MEMORY:-256mb}
+        --maxmemory-policy allkeys-lru
+        --loglevel warning
+    volumes:
+      - redis_data:/data
+    networks:
+      - owndatabase
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # CONTROL API — Platform management API
+  # ─────────────────────────────────────────────────────────────────────────
+  control-api:
+    build:
+      context: ./platform/control-plane
+      dockerfile: Dockerfile
+      target: development
+    container_name: owndatabase-control-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600}
+      REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN:-604800}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?SECRET_ENCRYPTION_KEY is required}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      PUBLIC_URL: ${SITE_URL:-http://localhost}
+      MIGRATIONS_DIR: /app/migrations
+      PROMETHEUS_URL: http://prometheus:9090
+      LOKI_URL: http://loki:3100
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-10}
+    volumes:
+      - ./platform/control-plane/src:/app/src
+      - ./platform/migrations:/app/migrations:ro
+    networks:
+      - owndatabase
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DASHBOARD — Next.js Control Panel
+  # ─────────────────────────────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: ./platform/dashboard
+      dockerfile: Dockerfile
+      target: development
+    container_name: owndatabase-dashboard
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3001
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-OwnDatabase}
+      NEXT_TELEMETRY_DISABLED: 1
+      CONTROL_API_INTERNAL_URL: http://control-api:3000
+      STORAGE_INTERNAL_URL: http://storage-api:3005
+      DATA_API_INTERNAL_URL: http://api-service:3003
+      AUTH_INTERNAL_URL: http://auth-service:3002
+    volumes:
+      - ./platform/dashboard/app:/app/app
+      - ./platform/dashboard/components:/app/components
+      - ./platform/dashboard/lib:/app/lib
+    networks:
+      - owndatabase
+    depends_on:
+      - control-api
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # AUTH SERVICE — Application authentication
+  # ─────────────────────────────────────────────────────────────────────────
+  auth-service:
+    build:
+      context: ./platform/data-plane/auth-service
+      dockerfile: Dockerfile
+      target: development
+    container_name: owndatabase-auth
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3002
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600}
+      REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN:-604800}
+      AUTH_PUBLIC_URL: ${SITE_URL:-http://localhost}/auth
+      AUTH_DEV_MAILBOX: ${AUTH_DEV_MAILBOX:-false}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@localhost}
+      SITE_URL: ${SITE_URL:-http://localhost}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./platform/data-plane/auth-service/src:/app/src
+    networks:
+      - owndatabase
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # API SERVICE — Auto-generated REST API
+  # ─────────────────────────────────────────────────────────────────────────
+  api-service:
+    build:
+      context: ./platform/data-plane/api-service
+      dockerfile: Dockerfile
+      target: development
+    container_name: owndatabase-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3003
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      POOLER_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB:-owndatabase}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}
+      PUBLIC_URL: ${SITE_URL:-http://localhost}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./platform/data-plane/api-service/src:/app/src
+    networks:
+      - owndatabase
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # REALTIME SERVICE — WebSocket + WAL-based change detection
+  # ─────────────────────────────────────────────────────────────────────────
+  realtime-service:
+    build:
+      context: ./platform/data-plane/realtime-service
+      dockerfile: Dockerfile
+      target: development
+    container_name: owndatabase-realtime
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3004
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./platform/data-plane/realtime-service/src:/app/src
+    networks:
+      - owndatabase
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3004/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # STORAGE API — File storage with S3-compatible backend
+  # ─────────────────────────────────────────────────────────────────────────
+  storage-api:
+    build:
+      context: ./platform/data-plane/storage-api
+      dockerfile: Dockerfile
+      target: development
+    container_name: owndatabase-storage
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3005
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:8333}
+      S3_BUCKET: ${S3_BUCKET:-owndatabase}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-${MINIO_ROOT_USER:-minioadmin}}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      STORAGE_FS_ROOT: /data/storage
+      PUBLIC_URL: ${SITE_URL:-http://localhost}
+      MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-104857600}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./platform/data-plane/storage-api/src:/app/src
+      - storage_data:/data/storage
+    networks:
+      - owndatabase
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3005/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # OBJECT STORAGE — SeaweedFS (Fast, lightweight S3-compatible, Docker Hub)
+  minio:
+    image: chrislusf/seaweedfs:latest
+    container_name: owndatabase-seaweedfs
+    restart: unless-stopped
+    command: "server -s3 -s3.port=8333 -dir=/data"
+    volumes:
+      - minio_data:/data
+    networks:
+      - owndatabase
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8333/ || exit 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Create default bucket when storage is ready
+  minio-setup:
+    image: amazon/aws-cli:latest
+    container_name: owndatabase-storage-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_DEFAULT_REGION: ${S3_REGION:-us-east-1}
+    entrypoint: >
+      /bin/sh -c "
+        aws --endpoint-url=http://minio:8333 s3 mb s3://${S3_BUCKET:-owndatabase} 2>/dev/null || true &&
+        echo 'Storage bucket ready'
+      "
+    networks:
+      - owndatabase
+    restart: on-failure
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # WORKERS — queues, cron, backups (Phase 7 + 8)
+  # ─────────────────────────────────────────────────────────────────────────
+  queue-worker:
+    build:
+      context: ./platform/workers/queue-worker
+      target: development
+    container_name: owndatabase-queue-worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3006
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}
+      API_SERVICE_URL: http://api-service:3003
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@localhost}
+      WEBHOOK_ALLOW_PRIVATE: ${WEBHOOK_ALLOW_PRIVATE:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./platform/workers/queue-worker/src:/app/src
+    networks:
+      - owndatabase
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3006/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  cron-scheduler:
+    build:
+      context: ./platform/workers/cron-scheduler
+      target: development
+    container_name: owndatabase-cron-scheduler
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3007
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./platform/workers/cron-scheduler/src:/app/src
+    networks:
+      - owndatabase
+    depends_on:
+      control-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3007/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  backup-worker:
+    build:
+      context: ./platform/workers/backup-worker
+      target: development
+    container_name: owndatabase-backup-worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3008
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-}
+      BACKUP_DIR: /backups
+      BACKUP_VERIFY_RESTORE: ${BACKUP_VERIFY_RESTORE:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./platform/workers/backup-worker/src:/app/src
+      - backup_data:/backups
+    networks:
+      - owndatabase
+    depends_on:
+      control-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3008/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # Host metrics for CPU / memory / disk alerts
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: owndatabase-node-exporter
+    restart: unless-stopped
+    command:
+      - '--path.rootfs=/host'
+    volumes:
+      # rslave is required on Linux; Docker Desktop (Windows/macOS) rejects it, so
+      # set NODE_EXPORTER_ROOT_PROPAGATION= (empty) in .env there.
+      - /:/host:ro${NODE_EXPORTER_ROOT_PROPAGATION-,rslave}
+    networks:
+      - owndatabase
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # MONITORING — Prometheus
+  # ─────────────────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: owndatabase-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    networks:
+      - owndatabase
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DASHBOARDS — Grafana
+  # ─────────────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: owndatabase-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_ROOT_URL: https://${DOMAIN:-localhost}/grafana
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - owndatabase
+    depends_on:
+      - prometheus
+      - loki
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # LOGS — Loki
+  # ─────────────────────────────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: owndatabase-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./infrastructure/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    networks:
+      - owndatabase
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # LOG SHIPPER — Promtail
+  # Collects logs from all containers and ships to Loki.
+  # ─────────────────────────────────────────────────────────────────────────
+  promtail:
+    image: grafana/promtail:latest
+    container_name: owndatabase-promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/promtail.yml
+    volumes:
+      - ./infrastructure/loki/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - owndatabase
+    depends_on:
+      - loki
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # POSTGRES EXPORTER — Metrics for Prometheus
+  # ─────────────────────────────────────────────────────────────────────────
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: owndatabase-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}?sslmode=disable"
+    networks:
+      - owndatabase
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # REDIS EXPORTER — Metrics for Prometheus
+  # ─────────────────────────────────────────────────────────────────────────
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: owndatabase-redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks:
+      - owndatabase
+    depends_on:
+      - redis
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NETWORKS
+# ─────────────────────────────────────────────────────────────────────────────
+networks:
+  owndatabase:
+    driver: bridge
+    name: owndatabase
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VOLUMES
+# ─────────────────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    name: owndatabase_postgres_data
+  redis_data:
+    name: owndatabase_redis_data
+  minio_data:
+    name: owndatabase_minio_data
+  caddy_data:
+    name: owndatabase_caddy_data
+  caddy_config:
+    name: owndatabase_caddy_config
+  prometheus_data:
+    name: owndatabase_prometheus_data
+  grafana_data:
+    name: owndatabase_grafana_data
+  loki_data:
+    name: owndatabase_loki_data
+  storage_data:
+    name: owndatabase_storage_data
+  backup_data:
+    name: owndatabase_backup_data

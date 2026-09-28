@@ -1,0 +1,88 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: 'development'
+    platform: 'owndatabase'
+
+# Alert rules
+rule_files:
+  - "rules/*.yml"
+
+scrape_configs:
+
+  # ── Prometheus itself ────────────────────────────────────────────────────
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'postgres'
+
+  # ── Redis ────────────────────────────────────────────────────────────────
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'redis'
+
+  # ── Control API ──────────────────────────────────────────────────────────
+  - job_name: 'control-api'
+    static_configs:
+      - targets: ['control-api:3000']
+    metrics_path: /metrics
+
+  # ── Auth Service ─────────────────────────────────────────────────────────
+  - job_name: 'auth-service'
+    static_configs:
+      - targets: ['auth-service:3002']
+    metrics_path: /metrics
+
+  # ── REST API ─────────────────────────────────────────────────────────────
+  - job_name: 'api-service'
+    static_configs:
+      - targets: ['api-service:3003']
+    metrics_path: /metrics
+
+  # ── Realtime Service ─────────────────────────────────────────────────────
+  - job_name: 'realtime-service'
+    static_configs:
+      - targets: ['realtime-service:3004']
+    metrics_path: /metrics
+
+  # ── Storage API ──────────────────────────────────────────────────────────
+  - job_name: 'storage-api'
+    static_configs:
+      - targets: ['storage-api:3005']
+    metrics_path: /metrics
+
+  # ── Workers ──────────────────────────────────────────────────────────────
+  - job_name: 'queue-worker'
+    static_configs:
+      - targets: ['queue-worker:3006']
+  - job_name: 'cron-scheduler'
+    static_configs:
+      - targets: ['cron-scheduler:3007']
+  - job_name: 'backup-worker'
+    static_configs:
+      - targets: ['backup-worker:3008']
+
+  # ── Host metrics (CPU, RAM, disk) ────────────────────────────────────────
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # ── cAdvisor (Docker container metrics) ─────────────────────────────────
+  # Uncomment and add cAdvisor service to docker-compose if desired
+  # - job_name: 'cadvisor'
+  #   static_configs:
+  #     - targets: ['cadvisor:8080']

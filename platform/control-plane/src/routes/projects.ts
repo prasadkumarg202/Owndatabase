@@ -1,0 +1,341 @@
+/**
+ * Project Routes
+ *
+ * GET    /api/projects                     — List projects visible to the user
+ * POST   /api/projects                     — Create + provision a project (returns default API keys once)
+ * GET    /api/projects/:id                 — Project details incl. service endpoints
+ * PATCH  /api/projects/:id                 — Update name / settings
+ * DELETE /api/projects/:id?confirm=<slug>  — Delete project and all its data
+ * POST   /api/projects/:id/pause | resume  — Pause / resume data-plane access
+ * POST   /api/projects/:id/provision       — Re-run (idempotent) provisioning
+ * GET    /api/projects/:id/connection      — Direct PostgreSQL connection info (owners/admins)
+ * GET    /api/projects/:id/auth-config     — End-user auth settings
+ * PUT    /api/projects/:id/auth-config     — Update end-user auth settings
+ * GET    /api/projects/:id/audit-logs      — Project audit trail
+ */
+
+import { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
+import { db } from '../lib/db.js';
+import { logger } from '../lib/logger.js';
+import { config } from '../config.js';
+import { ADMIN_ROLES, audit, ownerRole, requireProject, userId } from '../lib/access.js';
+import { dropProjectSchema, generateApiKey } from '../lib/provision.js';
+import { closeProjectDb, ensureProjectProvisioned, getProjectDbPassword, projectConnectionUrl } from '../lib/project-db.js';
+import { redis } from '../lib/redis.js';
+
+const REGIONS = ['local', 'in-south-1', 'us-east-1', 'eu-west-1'] as const;
+
+const createProjectSchema = z.object({
+  name: z.string().min(1).max(255).trim(),
+  slug: z.string().min(3).max(40).regex(/^[a-z][a-z0-9-]*$/, 'Slug must start with a letter and contain only lowercase letters, numbers and hyphens').trim().optional(),
+  organization_id: z.string().uuid().optional(),
+  region: z.enum(REGIONS).default('local'),
+});
+
+const updateProjectSchema = z.object({
+  name: z.string().min(1).max(255).trim().optional(),
+  settings: z.record(z.unknown()).optional(),
+});
+
+export const DEFAULT_AUTH_CONFIG = {
+  enable_signup: true,
+  require_email_confirmation: false,
+  password_min_length: 8,
+  jwt_expiry: 3600,
+  enable_magic_link: true,
+  enable_mfa: true,
+  max_failed_logins: 5,
+  lockout_minutes: 15,
+  site_url: '',
+  redirect_urls: [] as string[],
+  providers: {
+    google: { enabled: false, client_id: '', client_secret: '' },
+    github: { enabled: false, client_id: '', client_secret: '' },
+  },
+};
+
+const authConfigSchema = z.object({
+  enable_signup: z.boolean(),
+  require_email_confirmation: z.boolean(),
+  password_min_length: z.number().int().min(6).max(128),
+  jwt_expiry: z.number().int().min(300).max(86400 * 7),
+  enable_magic_link: z.boolean(),
+  enable_mfa: z.boolean(),
+  max_failed_logins: z.number().int().min(1).max(100),
+  lockout_minutes: z.number().int().min(1).max(1440),
+  site_url: z.string().max(500),
+  redirect_urls: z.array(z.string().max(500)).max(50),
+  providers: z.object({
+    google: z.object({ enabled: z.boolean(), client_id: z.string(), client_secret: z.string() }).partial(),
+    github: z.object({ enabled: z.boolean(), client_id: z.string(), client_secret: z.string() }).partial(),
+  }).partial(),
+}).partial();
+
+export function endpointsFor(projectId: string) {
+  const base = config.publicUrl.replace(/\/$/, '');
+  const ws = base.replace(/^http/, 'ws');
+  return {
+    rest_url: `${base}/rest/v1/${projectId}`,
+    auth_url: `${base}/auth/v1/${projectId}`,
+    storage_url: `${base}/storage/v1/${projectId}`,
+    realtime_url: `${ws}/realtime?project_id=${projectId}`,
+    functions_url: `${base}/functions/v1/${projectId}`,
+    openapi_url: `${base}/rest/v1/${projectId}/openapi.json`,
+  };
+}
+
+function redactAuthConfig(cfg: any) {
+  const clone = JSON.parse(JSON.stringify(cfg));
+  for (const p of Object.values(clone.providers ?? {}) as any[]) {
+    if (p?.client_secret) p.client_secret = '••••••••';
+  }
+  return clone;
+}
+
+async function invalidateProjectCache(projectId: string) {
+  await redis.publish('odb:project-changed', projectId).catch(() => {});
+}
+
+export const projectRoutes: FastifyPluginAsync = async (server: FastifyInstance) => {
+  const auth = { preValidation: [server.authenticate] };
+  const tags = { tags: ['projects'], security: [{ bearerAuth: [] }] };
+
+  server.get('/', { ...auth, schema: { ...tags, summary: 'List projects' } }, async (request, reply) => {
+    const projects = await db`
+      SELECT p.id, p.name, p.slug, p.status, p.region, p.db_schema, p.api_endpoint, p.created_at, p.updated_at,
+             p.organization_id, o.name AS organization_name, o.slug AS organization_slug, om.role AS member_role
+      FROM control_plane.projects p
+      JOIN control_plane.organizations o ON o.id = p.organization_id
+      JOIN control_plane.organization_members om ON om.organization_id = o.id
+      WHERE om.user_id = ${userId(request)} AND p.status <> 'deleting'
+      ORDER BY p.created_at DESC
+    `;
+    return reply.send({ data: projects, count: projects.length });
+  });
+
+  server.post('/', { ...auth, schema: { ...tags, summary: 'Create a new project' } }, async (request, reply) => {
+    const uid = userId(request);
+    const input = createProjectSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.status(400).send({ error: 'Validation Error', message: input.error.errors[0]?.message ?? 'Invalid input' });
+    }
+    const { name, region } = input.data;
+    let { organization_id, slug } = input.data;
+
+    if (!organization_id) {
+      const [first] = await db`
+        SELECT organization_id FROM control_plane.organization_members
+        WHERE user_id = ${uid} AND role IN ('owner','admin') ORDER BY invited_at ASC LIMIT 1`;
+      if (!first) return reply.status(400).send({ error: 'Validation Error', message: 'organization_id is required' });
+      organization_id = first['organization_id'] as string;
+    }
+
+    const [membership] = await db`
+      SELECT role FROM control_plane.organization_members WHERE organization_id = ${organization_id} AND user_id = ${uid}`;
+    if (!membership) return reply.status(403).send({ error: 'Forbidden', message: 'No access to this organization' });
+    if (!['owner', 'admin'].includes(membership['role'] as string)) {
+      return reply.status(403).send({ error: 'Forbidden', message: 'Only owners and admins can create projects' });
+    }
+
+    slug ??= name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^[^a-z]+|-+$/g, '').slice(0, 30) || 'project';
+
+    const [existing] = await db`
+      SELECT id FROM control_plane.projects WHERE organization_id = ${organization_id} AND slug = ${slug}`;
+    if (existing) return reply.status(409).send({ error: 'Conflict', message: 'A project with this slug already exists' });
+
+    // Schema names are global in the shared database, so add a short suffix
+    // when another organization already uses the same slug.
+    let dbSchema = `project_${slug.replace(/-/g, '_')}`.slice(0, 50);
+    const [clash] = await db`SELECT 1 FROM pg_namespace WHERE nspname = ${dbSchema}
+                             UNION SELECT 1 FROM control_plane.projects WHERE db_schema = ${dbSchema}`;
+    if (clash) dbSchema = `${dbSchema}_${Math.random().toString(36).slice(2, 7)}`;
+
+    const [project] = await db`
+      INSERT INTO control_plane.projects (organization_id, name, slug, status, region, db_name, db_schema, settings)
+      VALUES (${organization_id}, ${name}, ${slug}, 'creating', ${region}, current_database(), ${dbSchema},
+              ${db.json({ auth: DEFAULT_AUTH_CONFIG })})
+      RETURNING *
+    `;
+    const projectId = project!['id'] as string;
+
+    try {
+      await ensureProjectProvisioned(projectId, dbSchema);
+    } catch (err) {
+      logger.error({ err, projectId }, 'Project provisioning failed');
+      await db`UPDATE control_plane.projects SET status = 'failed' WHERE id = ${projectId}`;
+      return reply.status(500).send({ error: 'Provisioning Failed', message: (err as Error).message });
+    }
+
+    const endpoints = endpointsFor(projectId);
+    const anon = generateApiKey('anon');
+    const service = generateApiKey('service_role');
+    await db.begin(async (sql) => {
+      await sql`
+        INSERT INTO control_plane.environments (project_id, name, type, is_default)
+        VALUES (${projectId}, 'development', 'development', true) ON CONFLICT DO NOTHING`;
+      await sql`
+        INSERT INTO control_plane.api_keys (project_id, name, key_hash, key_prefix, type, created_by) VALUES
+          (${projectId}, 'Default anon key', ${anon.hash}, ${anon.prefix}, 'anon', ${uid}),
+          (${projectId}, 'Default service key', ${service.hash}, ${service.prefix}, 'service_role', ${uid})`;
+      await sql`
+        UPDATE control_plane.projects
+        SET status = 'active', api_endpoint = ${endpoints.rest_url}, auth_endpoint = ${endpoints.auth_url},
+            storage_endpoint = ${endpoints.storage_url}, realtime_endpoint = ${endpoints.realtime_url}
+        WHERE id = ${projectId}`;
+      await sql`
+        INSERT INTO control_plane.backup_configs (project_id) VALUES (${projectId}) ON CONFLICT DO NOTHING`;
+    });
+
+    await audit(request, 'project.created', { type: 'project', id: projectId, projectId, orgId: organization_id }, { name, slug });
+    logger.info({ uid, projectId, slug }, 'Project created');
+
+    const [created] = await db`SELECT * FROM control_plane.projects WHERE id = ${projectId}`;
+    const { metadata: _m, ...safe } = created as any;
+    return reply.status(201).send({
+      ...safe,
+      settings: { ...safe.settings, auth: redactAuthConfig(safe.settings?.auth ?? DEFAULT_AUTH_CONFIG) },
+      endpoints,
+      api_keys: { anon: anon.key, service_role: service.key },
+      warning: 'API keys are shown only once. Store them securely.',
+    });
+  });
+
+  server.get('/:id', { ...auth, schema: { ...tags, summary: 'Get project details' } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const p = await requireProject(request, reply, id);
+    if (!p) return;
+    const [project] = await db`
+      SELECT p.*, o.name AS organization_name, o.slug AS organization_slug
+      FROM control_plane.projects p JOIN control_plane.organizations o ON o.id = p.organization_id
+      WHERE p.id = ${id}`;
+    const { metadata: _m, ...safe } = project as any;
+    const [counts] = await db`
+      SELECT
+        (SELECT count(*)::int FROM information_schema.tables WHERE table_schema = ${p.db_schema} AND table_type = 'BASE TABLE') AS tables,
+        (SELECT count(*)::int FROM auth.users WHERE project_id = ${id} AND deleted_at IS NULL) AS users,
+        (SELECT count(*)::int FROM storage.buckets WHERE project_id = ${id}) AS buckets,
+        (SELECT count(*)::int FROM control_plane.api_keys WHERE project_id = ${id} AND is_active) AS api_keys,
+        (SELECT count(*)::int FROM control_plane.functions WHERE project_id = ${id}) AS functions,
+        (SELECT pg_size_pretty(COALESCE(sum(pg_total_relation_size(c.oid)),0)::bigint)
+           FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = ${p.db_schema} AND c.relkind IN ('r','m')) AS db_size
+    `;
+    return reply.send({
+      ...safe,
+      settings: { ...safe.settings, auth: redactAuthConfig({ ...DEFAULT_AUTH_CONFIG, ...(safe.settings?.auth ?? {}) }) },
+      member_role: p.role,
+      endpoints: endpointsFor(id),
+      stats: counts,
+    });
+  });
+
+  server.patch('/:id', { ...auth, schema: { ...tags, summary: 'Update project' } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const p = await requireProject(request, reply, id, ADMIN_ROLES);
+    if (!p) return;
+    const input = updateProjectSchema.safeParse(request.body);
+    if (!input.success) return reply.status(400).send({ error: 'Validation Error', message: input.error.errors[0]?.message ?? 'Invalid input' });
+    const settings = input.data.settings ? { ...p.settings, ...input.data.settings, auth: p.settings?.['auth'] } : p.settings;
+    const [project] = await db`
+      UPDATE control_plane.projects SET name = ${input.data.name ?? p.name}, settings = ${db.json(settings as any)}
+      WHERE id = ${id} RETURNING id, name, slug, status, settings, updated_at`;
+    await audit(request, 'project.updated', { type: 'project', id, projectId: id });
+    return reply.send(project);
+  });
+
+  server.delete('/:id', { ...auth, schema: { ...tags, summary: 'Delete project (requires ?confirm=<slug>)' } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const p = await requireProject(request, reply, id, ['owner']);
+    if (!p) return;
+    const { confirm } = request.query as { confirm?: string };
+    if (confirm !== p.slug) {
+      return reply.status(400).send({ error: 'Confirmation Required', message: `Pass ?confirm=${p.slug} to delete this project and all of its data` });
+    }
+    await db`UPDATE control_plane.projects SET status = 'deleting' WHERE id = ${id}`;
+    await invalidateProjectCache(id);
+    await closeProjectDb(id);
+    await dropProjectSchema(p.db_schema);
+    await audit(request, 'project.deleted', { type: 'project', id, orgId: p.organization_id }, { slug: p.slug });
+    await db`DELETE FROM control_plane.projects WHERE id = ${id}`;
+    return reply.send({ success: true });
+  });
+
+  for (const action of ['pause', 'resume'] as const) {
+    server.post(`/:id/${action}`, { ...auth, schema: { ...tags, summary: `${action} project` } }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const p = await requireProject(request, reply, id, ADMIN_ROLES);
+      if (!p) return;
+      const status = action === 'pause' ? 'paused' : 'active';
+      const [row] = await db`UPDATE control_plane.projects SET status = ${status} WHERE id = ${id} RETURNING id, status`;
+      await invalidateProjectCache(id);
+      await audit(request, `project.${action}d`, { type: 'project', id, projectId: id });
+      return reply.send(row);
+    });
+  }
+
+  server.post('/:id/provision', { ...auth, schema: { ...tags, summary: 'Re-run provisioning' } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const p = await requireProject(request, reply, id, ADMIN_ROLES);
+    if (!p) return;
+    await ensureProjectProvisioned(id, p.db_schema);
+    await db`UPDATE control_plane.projects SET status = 'active' WHERE id = ${id} AND status IN ('failed','creating')`;
+    return reply.send({ success: true, schema: p.db_schema });
+  });
+
+  server.get('/:id/connection', { ...auth, schema: { ...tags, summary: 'Direct database connection details' } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const p = await requireProject(request, reply, id, ADMIN_ROLES);
+    if (!p) return;
+    const password = await getProjectDbPassword(id);
+    const host = new URL(config.databaseUrl);
+    return reply.send({
+      host: host.hostname, port: Number(host.port || 5432), database: host.pathname.slice(1),
+      user: ownerRole(p.db_schema), password, schema: p.db_schema,
+      connection_string: projectConnectionUrl(p.db_schema, password),
+      note: 'This role can only access the project schema. Expose PostgreSQL/PgBouncer on your network to connect from outside.',
+    });
+  });
+
+  server.get('/:id/auth-config', { ...auth, schema: { ...tags, summary: 'Get end-user auth settings' } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const p = await requireProject(request, reply, id);
+    if (!p) return;
+    return reply.send(redactAuthConfig({ ...DEFAULT_AUTH_CONFIG, ...(p.settings?.['auth'] ?? {}) }));
+  });
+
+  server.put('/:id/auth-config', { ...auth, schema: { ...tags, summary: 'Update end-user auth settings' } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const p = await requireProject(request, reply, id, ADMIN_ROLES);
+    if (!p) return;
+    const input = authConfigSchema.safeParse(request.body);
+    if (!input.success) return reply.status(400).send({ error: 'Validation Error', message: input.error.errors[0]?.message ?? 'Invalid input' });
+
+    const current: any = { ...DEFAULT_AUTH_CONFIG, ...(p.settings?.['auth'] ?? {}) };
+    const next: any = { ...current, ...input.data, providers: { ...current.providers } };
+    for (const [name, prov] of Object.entries(input.data.providers ?? {})) {
+      const merged = { ...current.providers?.[name], ...prov };
+      // A redacted secret coming back from the UI means "unchanged"
+      if (prov?.client_secret === '••••••••') merged.client_secret = current.providers?.[name]?.client_secret ?? '';
+      next.providers[name] = merged;
+    }
+    await db`
+      UPDATE control_plane.projects SET settings = jsonb_set(settings, '{auth}', ${db.json(next)}) WHERE id = ${id}`;
+    await invalidateProjectCache(id);
+    await audit(request, 'project.auth_config_updated', { type: 'project', id, projectId: id });
+    return reply.send(redactAuthConfig(next));
+  });
+
+  server.get('/:id/audit-logs', { ...auth, schema: { ...tags, summary: 'Project audit logs' } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const p = await requireProject(request, reply, id);
+    if (!p) return;
+    const { limit = '100' } = request.query as { limit?: string };
+    const rows = await db`
+      SELECT a.id, a.timestamp, a.event_type, a.actor_id, pu.email AS actor_email, a.target_type, a.target_id, a.ip_address, a.metadata
+      FROM control_plane.audit_logs a LEFT JOIN control_plane.platform_users pu ON pu.id = a.actor_id
+      WHERE a.project_id = ${id}
+      ORDER BY a.timestamp DESC LIMIT ${Math.min(Number(limit) || 100, 500)}`;
+    return reply.send({ data: rows });
+  });
+};

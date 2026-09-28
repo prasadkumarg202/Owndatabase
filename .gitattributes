@@ -1,0 +1,7 @@
+# Keep LF everywhere: scripts and configs are mounted into Linux containers
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary

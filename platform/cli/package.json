@@ -1,0 +1,27 @@
+{
+  "name": "@owndatabase/cli",
+  "version": "0.2.0",
+  "description": "OwnDatabase CLI",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "odb": "./dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
