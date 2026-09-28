@@ -77,8 +77,9 @@ export const authRoutes: FastifyPluginAsync = async (server: FastifyInstance) =>
 
     const user = await db.begin(async (sql) => {
       const [u] = await sql`
-        INSERT INTO control_plane.platform_users (email, name, password_hash)
-        VALUES (${email}, ${name ?? null}, ${passwordHash})
+        -- the very first account administers the platform
+        INSERT INTO control_plane.platform_users (email, name, password_hash, is_platform_admin)
+        VALUES (${email}, ${name ?? null}, ${passwordHash}, NOT EXISTS (SELECT 1 FROM control_plane.platform_users))
         RETURNING id, email, name, created_at
       `;
       // Every user gets a personal organization so they can create projects immediately
@@ -181,7 +182,8 @@ export const authRoutes: FastifyPluginAsync = async (server: FastifyInstance) =>
     schema: { tags: ['auth'], summary: 'Get current user profile', security: [{ bearerAuth: [] }] },
   }, async (request, reply) => {
     const [user] = await db`
-      SELECT id, email, name, is_verified, mfa_enabled, avatar_url, last_login_at, created_at
+      SELECT id, email, name, is_verified, mfa_enabled, avatar_url, last_login_at, created_at,
+             (is_platform_admin OR lower(email) = ANY(${config.platformAdminEmails})) AS is_platform_admin
       FROM control_plane.platform_users WHERE id = ${userId(request)}
     `;
     if (!user) return reply.status(404).send({ error: 'Not Found', message: 'User not found' });

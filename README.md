@@ -25,7 +25,7 @@ OwnDatabase is an open-source, self-hosted Backend-as-a-Service platform built o
 | Realtime: table changes (RLS-aware), broadcast, presence | ✅ | Phase 5 |
 | Monitoring (Prometheus, Grafana, Loki, alerts) + logs/usage/health in the dashboard | ✅ | Phase 6 |
 | Per-project encrypted backups, verified by test restore; scheduled; restore | ✅ | Phase 7 |
-| Cluster PITR with pgBackRest | ⚠️ untested template | Phase 7 |
+| Cluster PITR with pgBackRest (WAL archiving, scheduled full/diff/incr, `scripts/pitr-restore.sh`) | ✅ | Phase 7 |
 | Functions (HTTP + queued), BullMQ jobs, cron, dead-letter queue, webhooks | ✅ | Phase 8 |
 | CLI (`odb`) and MCP server | ✅ | Phase 9 |
 | HA: Patroni + etcd + HAProxy | ⚠️ untested template | Phase 10 |
@@ -184,6 +184,8 @@ A few tests need something extra and **skip** (not fail) without it. `.env.examp
 | OAuth login flow | `OAUTH_GITHUB_*_URL` pointing at the mock provider the test starts on port 9911 (authorize URL via `localhost`, token/user URLs via `host.docker.internal` on Docker Desktop) |
 | webhook delivery | `WEBHOOK_ALLOW_PRIVATE=true` and `ODB_WEBHOOK_HOST` = an address the queue-worker can reach (`host.docker.internal` on Docker Desktop) |
 | CLI and MCP server | `npm install` in `platform/cli` and `platform/mcp-server` |
+| metrics / cluster backups (platform-admin endpoints) | `ODB_ADMIN_EMAIL` + `ODB_ADMIN_PASSWORD`, with that email in `PLATFORM_ADMIN_EMAILS` |
+| point-in-time restore round-trip | `ODB_DESTRUCTIVE_TESTS=1` (rolls the whole cluster back a few seconds), bash and the docker CLI |
 
 Service `/metrics` endpoints are internal-only (not routed by Caddy); the observability tests check them through Prometheus via `GET /api/observability/metrics`.
 

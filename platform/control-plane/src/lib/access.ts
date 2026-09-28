@@ -3,6 +3,7 @@
  */
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { db } from './db.js';
+import { config } from '../config.js';
 
 export type OrgRole = 'owner' | 'admin' | 'developer' | 'viewer' | 'billing' | 'support';
 
@@ -22,6 +23,18 @@ export const ADMIN_ROLES: OrgRole[] = ['owner', 'admin'];
 
 export function userId(request: FastifyRequest): string {
   return (request.user as { sub: string }).sub;
+}
+
+/**
+ * Platform admins may see cluster-wide data. Being an organization owner is not
+ * enough: every signup owns a personal organization. Sends 403 and returns false
+ * when the caller is not an admin.
+ */
+export async function requirePlatformAdmin(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
+  const [u] = await db`SELECT email, is_platform_admin FROM control_plane.platform_users WHERE id = ${userId(request)} AND is_active`;
+  if (u && (u['is_platform_admin'] || config.platformAdminEmails.includes(String(u['email']).toLowerCase()))) return true;
+  reply.status(403).send({ error: 'Forbidden', message: 'Platform administrators only' });
+  return false;
 }
 
 export async function getProjectAccess(projectId: string, uid: string): Promise<ProjectAccess | null> {

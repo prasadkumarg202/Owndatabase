@@ -48,7 +48,9 @@ services:
   # DATABASE — PostgreSQL 16
   # ─────────────────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    build:
+      context: ./infrastructure/postgres   # postgres:16-alpine + pgBackRest
+    image: owndatabase-postgres
     container_name: owndatabase-postgres
     restart: unless-stopped
     environment:
@@ -56,8 +58,13 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:-owndatabase}
       PGDATA: /var/lib/postgresql/data/pgdata
+      # archive_command runs pgbackrest archive-push, which encrypts WAL
+      PGBACKREST_REPO1_CIPHER_PASS: ${PGBACKREST_CIPHER_PASS:?PGBACKREST_CIPHER_PASS is required (make generate-secrets)}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - postgres_socket:/var/run/postgresql
+      - pgbackrest_repo:/var/lib/pgbackrest
+      - ./infrastructure/pgbackrest/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
       - ./infrastructure/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
       - ./infrastructure/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
       - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
@@ -77,6 +84,43 @@ services:
     # Uncomment ONLY for local development access from host tools:
     # ports:
     #   - "127.0.0.1:5432:5432"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # CLUSTER BACKUPS — pgBackRest (full/diff/incr backups + WAL archive = PITR)
+  # Point-in-time restore: scripts/pitr-restore.sh (see docs/backups.md)
+  # ─────────────────────────────────────────────────────────────────────────
+  pgbackrest:
+    image: owndatabase-postgres
+    container_name: owndatabase-pgbackrest
+    restart: unless-stopped
+    user: postgres
+    entrypoint: ["/bin/sh", "/usr/local/bin/pgbackrest-sidecar.sh"]
+    environment:
+      PGBACKREST_REPO1_CIPHER_PASS: ${PGBACKREST_CIPHER_PASS:?PGBACKREST_CIPHER_PASS is required (make generate-secrets)}
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-owndatabase}
+      # not PGBACKREST_*: pgbackrest treats that prefix as its own options
+      BACKUP_FULL_HOURS: ${PGBACKREST_FULL_HOURS:-168}
+      BACKUP_DIFF_HOURS: ${PGBACKREST_DIFF_HOURS:-24}
+      BACKUP_INCR_HOURS: ${PGBACKREST_INCR_HOURS:-1}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data   # read-write: restore writes here
+      - postgres_socket:/var/run/postgresql
+      - pgbackrest_repo:/var/lib/pgbackrest
+      - ./infrastructure/pgbackrest/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      - ./infrastructure/pgbackrest/entrypoint.sh:/usr/local/bin/pgbackrest-sidecar.sh:ro
+    networks:
+      - owndatabase
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp/pgbackrest-ok -mmin -15 | grep -q ."]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10m   # first full backup
 
   # ─────────────────────────────────────────────────────────────────────────
   # CONNECTION POOLER — PgBouncer
@@ -161,6 +205,7 @@ services:
       LOKI_URL: http://loki:3100
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-10}
+      PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
     volumes:
       - ./platform/control-plane/src:/app/src
       - ./platform/migrations:/app/migrations:ro
@@ -668,6 +713,10 @@ networks:
 volumes:
   postgres_data:
     name: owndatabase_postgres_data
+  postgres_socket:
+    name: owndatabase_postgres_socket
+  pgbackrest_repo:
+    name: owndatabase_pgbackrest_repo
   redis_data:
     name: owndatabase_redis_data
   minio_data:

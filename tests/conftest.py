@@ -6,6 +6,8 @@ http://localhost) or per-service ODB_*_URL variables — see odb.py.
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 import requests
 
@@ -29,6 +31,19 @@ def _platform_up():
 @pytest.fixture(scope="session")
 def owner() -> Platform:
     return signup_platform_user("owner")
+
+
+@pytest.fixture(scope="session")
+def platform_admin() -> Platform:
+    """A platform admin: its email must be in PLATFORM_ADMIN_EMAILS on the control API."""
+    email, password = os.environ.get("ODB_ADMIN_EMAIL"), os.environ.get("ODB_ADMIN_PASSWORD")
+    if not (email and password):
+        pytest.skip("set ODB_ADMIN_EMAIL / ODB_ADMIN_PASSWORD (and PLATFORM_ADMIN_EMAILS on the stack)")
+    admin = signup_platform_user("admin", email=email, password=password)
+    me = admin.get("/auth/me").json()
+    if not me.get("is_platform_admin"):
+        pytest.fail(f"{email} is not a platform admin: add it to PLATFORM_ADMIN_EMAILS and restart control-api")
+    return admin
 
 
 @pytest.fixture(scope="session")

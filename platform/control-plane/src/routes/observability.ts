@@ -5,14 +5,15 @@
  *   GET /api/projects/:id/usage          — row counts, storage bytes, requests (Prometheus if configured)
  *   GET /api/observability/services      — health of every platform service
  *   GET /api/observability/alerts        — active Prometheus alerts (proxied)
- *   GET /api/observability/metrics?query= — instant PromQL query (proxied, owners only)
+ *   GET /api/observability/metrics?query= — instant PromQL query (proxied, platform admins only)
+ *   GET /api/cluster/backups             — pgBackRest backups, PITR window, WAL archiving (platform admins only)
  */
 
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { db } from '../lib/db.js';
 import { redis } from '../lib/redis.js';
 import { config } from '../config.js';
-import { requireProject, userId } from '../lib/access.js';
+import { requirePlatformAdmin, requireProject } from '../lib/access.js';
 
 const SERVICE_URLS: Record<string, string> = Object.fromEntries(
   (process.env['SERVICE_HEALTH_URLS'] ??
@@ -169,11 +170,44 @@ export const observabilityRoutes: FastifyPluginAsync = async (server: FastifyIns
 
   server.get('/observability/metrics', { ...auth, ...s('Instant PromQL query') }, async (request, reply) => {
     if (!config.prometheusUrl) return reply.status(404).send({ error: 'Not Configured', message: 'PROMETHEUS_URL is not set' });
-    const [owner] = await db`SELECT 1 FROM control_plane.organization_members WHERE user_id = ${userId(request)} AND role IN ('owner','admin') LIMIT 1`;
-    if (!owner) return reply.status(403).send({ error: 'Forbidden' });
+    // Raw PromQL sees every tenant's series, so only platform admins may use it.
+    if (!(await requirePlatformAdmin(request, reply))) return;
     const { query } = request.query as { query?: string };
     if (!query) return reply.status(400).send({ error: 'Validation Error', message: 'query is required' });
     const r = await fetchJson(`${config.prometheusUrl}/api/v1/query?query=${encodeURIComponent(query)}`);
     return reply.send(r.body);
+  });
+
+  // Whole-cluster backups (all projects) — written by the pgbackrest sidecar.
+  server.get('/cluster/backups', { ...auth, ...s('Cluster backups and point-in-time recovery window') }, async (request, reply) => {
+    if (!(await requirePlatformAdmin(request, reply))) return;
+    const [row] = await db`SELECT info, last_error, updated_at FROM control_plane.cluster_backup_status WHERE id = 1`;
+    const [arch] = await db`
+      SELECT archived_count::int, failed_count::int, last_archived_wal, last_archived_time, last_failed_wal, last_failed_time
+      FROM pg_stat_archiver`;
+    const info = row?.['info'] as any;
+    const toIso = (t?: number) => (t ? new Date(t * 1000).toISOString() : null);
+    const backups = ((info?.backup ?? []) as any[]).map((b) => ({
+      label: b.label, type: b.type,
+      started_at: toIso(b.timestamp?.start), finished_at: toIso(b.timestamp?.stop),
+      database_bytes: b.info?.size ?? null, repo_bytes: b.info?.repository?.delta ?? null,
+      wal_start: b.archive?.start ?? null, wal_stop: b.archive?.stop ?? null,
+    }));
+    const archive = (info?.archive ?? [])[0];
+    return reply.send({
+      configured: !!row,
+      status: info?.status?.message ?? null,
+      last_error: row?.['last_error'] ?? null,
+      updated_at: row?.['updated_at'] ?? null,
+      backups,
+      // Restorable range: from the end of the oldest backup to the newest archived WAL.
+      pitr_window: backups.length ? { from: backups[0].finished_at, to: arch?.['last_archived_time'] ?? null } : null,
+      wal_archive: {
+        min_wal: archive?.min ?? null, max_wal: archive?.max ?? null,
+        archived_count: arch?.['archived_count'] ?? 0, failed_count: arch?.['failed_count'] ?? 0,
+        last_archived_wal: arch?.['last_archived_wal'] ?? null, last_archived_at: arch?.['last_archived_time'] ?? null,
+        last_failed_wal: arch?.['last_failed_wal'] ?? null, last_failed_at: arch?.['last_failed_time'] ?? null,
+      },
+    });
   });
 };

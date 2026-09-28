@@ -33,6 +33,8 @@ const configSchema = z.object({
 
   rateLimitMax: z.coerce.number().int().positive().default(300),
   loginRateLimitMax: z.coerce.number().int().positive().default(10),
+  // Comma-separated emails that are platform admins (in addition to is_platform_admin)
+  platformAdminEmails: z.string().default('').transform((v) => v.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean)),
 
   // Public URL the platform is reachable on (for generated endpoints)
   publicUrl: z.string().default('http://localhost'),
@@ -70,6 +72,7 @@ function loadConfig() {
     migrateOnStart: e['MIGRATE_ON_START'],
     rateLimitMax: e['RATE_LIMIT_MAX'],
     loginRateLimitMax: e['LOGIN_RATE_LIMIT_MAX'],
+    platformAdminEmails: e['PLATFORM_ADMIN_EMAILS'],
     publicUrl: e['PUBLIC_URL'] ?? e['SITE_URL'],
     prometheusUrl: e['PROMETHEUS_URL'] || undefined,
     lokiUrl: e['LOKI_URL'] || undefined,

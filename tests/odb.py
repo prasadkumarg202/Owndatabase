@@ -77,11 +77,13 @@ class Platform:
     def delete(self, path, **kw): return self.req("DELETE", path, **kw)
 
 
-def signup_platform_user(prefix="owner") -> Platform:
-    email = f"{prefix}-{uuid.uuid4().hex[:10]}@test.owndatabase.dev"
-    password = "Pw-" + secrets.token_hex(8)
+def signup_platform_user(prefix="owner", email: str | None = None, password: str | None = None) -> Platform:
+    """Sign up (or, for a given email that already exists, just log in) and return the session."""
+    fixed = email is not None
+    email = email or f"{prefix}-{uuid.uuid4().hex[:10]}@test.owndatabase.dev"
+    password = password or "Pw-" + secrets.token_hex(8)
     r = requests.post(f"{URLS['api']}/api/auth/signup", json={"email": email, "password": password, "name": prefix}, timeout=30)
-    assert r.status_code == 201, r.text
+    assert r.status_code == 201 or (fixed and r.status_code == 409), r.text
     r = requests.post(f"{URLS['api']}/api/auth/login", json={"email": email, "password": password}, timeout=30)
     assert r.status_code == 200, r.text
     body = r.json()

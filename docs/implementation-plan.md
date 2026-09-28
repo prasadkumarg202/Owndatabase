@@ -172,13 +172,13 @@
 
 ### Deliverables
 
-- [ ] pgBackRest integration — config + compose file exist (`infrastructure/pgbackrest/`), not wired into the stack or tested
-- [~] Full backups per project (pg_dump); incremental only via pgBackRest (untested)
-- [ ] WAL archiving — needs pgBackRest (see docs/backups.md)
+- [x] pgBackRest integration — `pgbackrest` sidecar in the main stack: stanza, scheduled full/diff/incr backups, encrypted repository; status at `GET /api/cluster/backups`
+- [x] Full backups per project (pg_dump); cluster-wide full/diff/incremental via pgBackRest
+- [x] WAL archiving — `archive_command` = pgBackRest `archive-push`, `archive_timeout` 60s, Prometheus alerts on failure/staleness
 - [x] Backup encryption
 - [x] Backup scheduling
 - [x] Restore via dashboard
-- [~] PITR restore — `scripts/pitr-restore.sh` template (untested); the dashboard restore is per-project, to a backup, not to a timestamp
+- [x] PITR restore — `scripts/pitr-restore.sh` restores the whole cluster to a timestamp (round-trip tested with `ODB_DESTRUCTIVE_TESTS=1`); the dashboard restore is per-project, to a backup
 - [x] Backup verification (automated restore tests)
 - [x] Backup status dashboard
 - [x] Retention policy

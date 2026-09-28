@@ -12,8 +12,8 @@ import requests
 from odb import BASE, URLS, wait_until
 
 
-def promql(owner, query: str) -> list:
-    r = owner.get(f"/observability/metrics?query={quote(query)}")
+def promql(user, query: str) -> list:
+    r = user.get(f"/observability/metrics?query={quote(query)}")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body.get("status") == "success", body
@@ -25,8 +25,15 @@ def test_metrics_not_public_through_gateway():
     assert r.status_code == 404 and "http_requests_total" not in r.text
 
 
-def test_control_api_metrics(owner):
-    series = promql(owner, 'http_requests_total{job="control-api"}')
+def test_raw_metrics_are_platform_admin_only(owner):
+    # every signup owns an organization, so org ownership must not unlock cluster-wide PromQL
+    r = owner.get("/observability/metrics?query=up")
+    assert r.status_code == 403, r.text
+    assert owner.get("/auth/me").json()["is_platform_admin"] is False
+
+
+def test_control_api_metrics(platform_admin):
+    series = promql(platform_admin, 'http_requests_total{job="control-api"}')
     assert series, "Prometheus has no http_requests_total series for control-api"
 
 
@@ -65,7 +72,7 @@ def test_alerts_endpoint(owner):
         assert body["rule_count"] >= 10
 
 
-def test_service_metrics_exposed(owner):
+def test_service_metrics_exposed(owner, platform_admin):
     # every data-plane service exposes /metrics next to /health, and Prometheus
     # scrapes it successfully (up == 1 for the same host:port)
     services = [s for s in owner.get("/observability/services").json()["data"] if s["url"].startswith("http")]
@@ -75,7 +82,7 @@ def test_service_metrics_exposed(owner):
     down = {}
 
     def all_up():
-        up = {r["metric"]["instance"]: r["value"][1] for r in promql(owner, "up")}
+        up = {r["metric"]["instance"]: r["value"][1] for r in promql(platform_admin, "up")}
         down.clear()
         down.update({name: up.get(inst, "not scraped") for inst, name in expected.items() if up.get(inst) != "1"})
         return not down
@@ -87,9 +94,9 @@ def test_service_metrics_exposed(owner):
     assert not down, f"services without working /metrics (Prometheus up != 1): {down}"
 
 
-def test_host_metrics_scraped(owner):
+def test_host_metrics_scraped(platform_admin):
     # node-exporter (host CPU / memory / disk for the alert rules) is up
-    series = promql(owner, 'up{job="node"}')
+    series = promql(platform_admin, 'up{job="node"}')
     assert series and series[0]["value"][1] == "1", series
 
 

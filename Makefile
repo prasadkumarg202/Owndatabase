@@ -195,6 +195,7 @@ generate-secrets: ## Generate random secrets for .env
 	@echo "SECRET_ENCRYPTION_KEY=$(shell openssl rand -hex 32)"
 	@echo "GRAFANA_PASSWORD=$(shell openssl rand -hex 12)"
 	@echo "MINIO_ROOT_PASSWORD=$(shell openssl rand -hex 16)"
+	@echo "PGBACKREST_CIPHER_PASS=$(shell openssl rand -hex 32)"
 	@echo ""
 
 init: ## Initialize project (copy env, install deps)

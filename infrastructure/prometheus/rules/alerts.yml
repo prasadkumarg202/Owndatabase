@@ -140,6 +140,20 @@ groups:
         annotations:
           summary: "No successful backup in 26 hours"
           description: "Scheduled backups may not be running."
+      - alert: WALArchivingFailing
+        expr: increase(pg_stat_archiver_failed_count[10m]) > 0
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "PostgreSQL cannot archive WAL to pgBackRest"
+          description: "archive-push has been failing for 10 minutes: point-in-time recovery is not possible past this point and WAL is piling up on disk. Check: docker compose logs pgbackrest postgres"
+      - alert: WALArchivingStale
+        expr: pg_stat_archiver_last_archive_age > 900
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "No WAL archived for 15 minutes"
+          description: "archive_timeout is 60s, so a segment should be archived at least every minute while the database is written to."
       - alert: PostgreSQLReplicationLag
         expr: pg_replication_lag_seconds > 30
         for: 5m
