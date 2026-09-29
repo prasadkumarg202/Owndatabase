@@ -21,6 +21,8 @@ import { organizationRoutes } from './routes/organizations.js';
 import { invitationRoutes, orgInvitationRoutes } from './routes/invitations.js';
 import { dbWebhookRoutes } from './routes/db-webhooks.js';
 import { limitRoutes } from './routes/limits.js';
+import { migrationRoutes } from './routes/migrations.js';
+import { tokenRoutes, authenticatePat } from './routes/tokens.js';
 import { projectRoutes } from './routes/projects.js';
 import { apiKeyRoutes } from './routes/api-keys.js';
 import { secretRoutes } from './routes/secrets.js';
@@ -75,6 +77,14 @@ export async function buildApp() {
   await server.register(metricsPlugin);
 
   server.decorate('authenticate', async function (request: any, reply: any) {
+    // Personal access tokens (CLI / CI): odb_pat_…
+    const bearer = String(request.headers['authorization'] ?? '');
+    if (bearer.startsWith('Bearer odb_pat_')) {
+      const user = await authenticatePat(bearer.slice(7));
+      if (!user) return reply.status(401).send({ error: 'Unauthorized', message: 'Invalid, expired or revoked access token' });
+      request.user = user;
+      return;
+    }
     try {
       await request.jwtVerify();
     } catch {
@@ -101,6 +111,8 @@ export async function buildApp() {
   await server.register(projectUserRoutes, { prefix: '/api/projects' });
   await server.register(dbWebhookRoutes, { prefix: '/api/projects' });
   await server.register(limitRoutes, { prefix: '/api/projects' });
+  await server.register(migrationRoutes, { prefix: '/api/projects' });
+  await server.register(tokenRoutes, { prefix: '/api/auth/tokens' });
   await server.register(observabilityRoutes, { prefix: '/api' });
   await server.register(apiKeyRoutes, { prefix: '/api/keys' });
   await server.register(secretRoutes, { prefix: '/api/secrets' });

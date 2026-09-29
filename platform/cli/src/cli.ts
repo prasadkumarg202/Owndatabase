@@ -6,6 +6,7 @@
  *   odb db tables <project> | exec <project> -q "select 1" | dump <project>
  *   odb keys list|create|revoke|rotate|rotate-all   odb secrets list|set|delete   odb storage buckets|create-bucket|upload|ls
  *   odb functions list|deploy|logs|invoke   odb backups list|create|restore   odb logs <project>   odb status
+ *   odb init   odb migration new|list|repair   odb db push|pull|reset   odb tokens list|create|revoke
  *
  * Global: --json for machine-readable output. Env: ODB_URL, ODB_TOKEN, ODB_API_KEY, ODB_CONFIG.
  */
@@ -15,6 +16,7 @@ import { basename } from 'node:path';
 import { api, request } from './api.js';
 import { configPath, loadConfig, saveConfig } from './config.js';
 import { bold, dim, fail, green, print, prompt, readStdin, setJson, table, yellow } from './output.js';
+import { registerMigrationCommands } from './migrations.js';
 
 const program = new Command();
 program.name('odb').description('OwnDatabase CLI').version('0.2.0').option('--json', 'JSON output');
@@ -217,5 +219,20 @@ program.command('logs <projectId>').option('--source <source>', 'all | audit | a
   }));
 program.command('users <projectId>').description('List end users of a project').option('--search <text>')
   .action(run(async (id, o) => print((await api(`/api/projects/${id}/users${o.search ? `?search=${encodeURIComponent(o.search)}` : ''}`)).data, ['id', 'email', 'email_verified', 'mfa_enabled', 'last_sign_in_at'])));
+
+// ── access tokens (CI) ──────────────────────────────────────────────────────
+const tokens = program.command('tokens').description('Personal access tokens for CI (use as ODB_TOKEN)');
+tokens.command('list').action(run(async () => print((await api('/api/auth/tokens')).data, ['id', 'name', 'token_prefix', 'expires_at', 'last_used_at', 'revoked_at'])));
+tokens.command('create <name>').option('--days <n>', 'expires after n days (1-365)', '90').option('--no-expiry', 'never expires')
+  .action(run(async (name, o) => {
+    const r = await api('/api/auth/tokens', { method: 'POST', json: { name, expires_in_days: o.expiry === false ? null : Number(o.days) } });
+    if (program.opts()['json']) return print(r);
+    console.log(green(`✓ Token created`) + dim(r.expires_at ? ` (expires ${r.expires_at})` : ' (no expiry)'));
+    console.log(yellow('Store it now — it will not be shown again:'));
+    console.log(r.token);
+  }));
+tokens.command('revoke <tokenId>').action(run(async (t) => { await api(`/api/auth/tokens/${t}`, { method: 'DELETE' }); console.log(green('✓ Token revoked')); }));
+
+registerMigrationCommands(program, run);
 
 program.parseAsync().catch(fail);

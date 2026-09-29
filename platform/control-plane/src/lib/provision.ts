@@ -48,6 +48,13 @@ export async function provisionProjectSchema(schema: string, password: string): 
     await sql.unsafe(`GRANT USAGE ON SCHEMA auth TO ${o}`);
     await sql.unsafe(`GRANT REFERENCES ON auth.users TO ${o}`);
     await sql.unsafe(`GRANT EXECUTE ON FUNCTION auth.uid(), auth.role(), auth.email() TO ${o}`);
+    // `odb db push` records each migration in the same transaction (migration 014)
+    await sql.unsafe(`
+      DO $$ BEGIN
+        IF to_regprocedure('odb_meta.record_migration(text,text,text)') IS NOT NULL THEN
+          EXECUTE 'GRANT EXECUTE ON FUNCTION odb_meta.record_migration(text,text,text) TO ${o.replace(/'/g, "''")}';
+        END IF;
+      END $$;`);
     // Project owners must not be able to read other projects or the control plane
     await sql.unsafe(`REVOKE ALL ON SCHEMA control_plane FROM ${o}`);
     await sql.unsafe(`REVOKE CREATE ON SCHEMA public FROM PUBLIC`);

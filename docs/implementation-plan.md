@@ -268,7 +268,7 @@
 - [x] Read-replica routing for REST reads (HA: HAProxy :5433, WAL-lag guard, primary fallback, `x-odb-read-consistency: strong`)
 - [x] Usage limits per project (requests, functions, storage, users, realtime, database size → read-only) — [limits.md](limits.md)
 - [x] API key rotation (grace period, rotate-all for leaks; dashboard + CLI)
-- [ ] Per-project migrations + CLI `db push/pull/reset`, `migration new`
+- [x] Per-project migrations + CLI `db push/pull/reset`, `migration new/list/repair`, personal access tokens, GitHub Actions workflow — [migrations.md](migrations.md)
 - [ ] Per-key rate limits
 - [ ] Postgres-native queues
 - [ ] OpenTelemetry traces
