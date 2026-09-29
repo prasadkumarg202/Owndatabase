@@ -23,6 +23,10 @@ def promql(user, query: str) -> list:
 def test_metrics_not_public_through_gateway():
     r = requests.get(f"{URLS['api']}/metrics", timeout=10)
     assert r.status_code == 404 and "http_requests_total" not in r.text
+    # each service's /metrics (project ids, request counts) must not be reachable via its public prefix
+    for base in (URLS["rest"], URLS["auth"], URLS["storage"], f"{URLS['api']}/api", f"{URLS['api']}/functions"):
+        r = requests.get(f"{base}/metrics", timeout=10)
+        assert r.status_code == 404 and "# HELP" not in r.text, base
 
 
 def test_raw_metrics_are_platform_admin_only(owner):

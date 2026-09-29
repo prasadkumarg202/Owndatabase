@@ -30,6 +30,28 @@
         -Server
     }
 
+    # ── Internal endpoints: Prometheus metrics are scraped on the Docker
+    # network, never through the gateway (they carry project ids and counts).
+    # Exact paths sort before the /svc/* handlers below.
+    handle /rest/metrics {
+        respond 404
+    }
+    handle /auth/metrics {
+        respond 404
+    }
+    handle /storage/metrics {
+        respond 404
+    }
+    handle /realtime/metrics {
+        respond 404
+    }
+    handle /functions/metrics {
+        respond 404
+    }
+    handle /api/metrics {
+        respond 404
+    }
+
     # ── Control API ──────────────────────────────────────────────────────────
     handle /api/* {
         reverse_proxy control-api:3000 {
