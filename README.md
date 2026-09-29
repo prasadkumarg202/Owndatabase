@@ -28,7 +28,7 @@ OwnDatabase is an open-source, self-hosted Backend-as-a-Service platform built o
 | Cluster PITR with pgBackRest (WAL archiving, scheduled full/diff/incr, `scripts/pitr-restore.sh`) | ✅ | Phase 7 |
 | Functions (HTTP + queued), BullMQ jobs, cron, dead-letter queue, webhooks | ✅ | Phase 8 |
 | CLI (`odb`) and MCP server | ✅ | Phase 9 |
-| HA: Patroni + etcd + HAProxy | ⚠️ untested template | Phase 10 |
+| HA: Patroni + etcd + HAProxy, automatic failover, WAL-G backups (single host tested; multi-VPS documented) | ✅ | Phase 10 |
 
 ✅ = implemented and covered by the test suite in [`tests/`](tests/). ⚠️ = config written, never run. See [docs/implementation-plan.md](docs/implementation-plan.md) for the item-by-item list.
 

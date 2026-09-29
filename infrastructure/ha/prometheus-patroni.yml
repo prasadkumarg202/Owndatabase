@@ -1,0 +1,8 @@
+# Patroni on every HA node (mounted into scrape.d/ by docker-compose.ha-app.yml).
+# Metrics: patroni_primary / patroni_replica / patroni_sync_standby,
+# patroni_xlog_location / _replayed_location (lag), patroni_postgres_timeline.
+scrape_configs:
+  - job_name: 'patroni'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['pg1:8008', 'pg2:8008', 'pg3:8008']

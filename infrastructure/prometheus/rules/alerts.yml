@@ -154,6 +154,41 @@ groups:
         annotations:
           summary: "No WAL archived for 15 minutes"
           description: "archive_timeout is 60s, so a segment should be archived at least every minute while the database is written to."
+      # ── Patroni HA cluster (only scraped in HA mode; see docs/ha.md) ──
+      - alert: PatroniNoLeader
+        expr: count(patroni_postgres_running) > 0 and sum(patroni_primary) == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "The HA cluster has no primary"
+          description: "No Patroni member is primary: writes are failing. Check: patronictl list"
+      - alert: PatroniMemberDown
+        expr: up{job="patroni"} == 0 or patroni_postgres_running == 0
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "HA member {{ $labels.instance }} is down"
+          description: "The cluster has less redundancy until this node rejoins."
+      - alert: PatroniReplicationLag
+        expr: (scalar(max(patroni_xlog_location)) - patroni_xlog_replayed_location) > 16777216 and on(instance) patroni_replica == 1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Replica {{ $labels.instance }} is more than 16 MB behind"
+          description: "A lagging replica is excluded from failover (maximum_lag_on_failover)."
+      - alert: PatroniNoSyncStandby
+        expr: count(patroni_postgres_running) > 0 and sum(patroni_sync_standby) == 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "No synchronous standby"
+          description: "synchronous_mode is on but no replica is synchronous: a failover now could lose committed transactions."
+      - alert: PatroniFailover
+        expr: changes(max(patroni_postgres_timeline)[15m:30s]) > 0
+        labels: { severity: info }
+        annotations:
+          summary: "An HA failover or switchover happened"
+          description: "The cluster timeline changed in the last 15 minutes."
       - alert: PostgreSQLReplicationLag
         expr: pg_replication_lag_seconds > 30
         for: 5m

@@ -9,6 +9,10 @@ global:
 rule_files:
   - "rules/*.yml"
 
+# Optional extra jobs, e.g. Patroni in HA mode (infrastructure/ha/prometheus-patroni.yml)
+scrape_config_files:
+  - "scrape.d/*.yml"
+
 scrape_configs:
 
   # ── Prometheus itself ────────────────────────────────────────────────────

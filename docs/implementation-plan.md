@@ -220,14 +220,15 @@
 
 ### Deliverables
 
-> `[~]` = untested template in `infrastructure/ha/` — see [docs/ha.md](ha.md).
+> See [docs/ha.md](ha.md). Tested with `ODB_HA=1` (`tests/test_phase10_ha.py`, plus the whole suite on the cluster).
 
-- [~] Patroni for PostgreSQL HA
-- [~] HAProxy for connection routing
-- [~] Read replica configuration
-- [~] Automatic failover
-- [~] Replication monitoring
-- [~] Multi-VPS deployment support
+- [x] Patroni for PostgreSQL HA — 3 nodes + etcd, synchronous mode (no acknowledged write lost on crash)
+- [x] HAProxy for connection routing — the app's `postgres` follows the primary; `:5001` for replicas
+- [x] Read replica configuration — 2 streaming replicas; the app does not route reads to them yet
+- [x] Automatic failover — primary SIGKILL → writes resume in ~31–36 s, old node rejoins via pg_rewind
+- [x] Replication monitoring — Patroni metrics in Prometheus + 5 alert rules
+- [x] HA backups — WAL-G continuous archiving + scheduled encrypted base backups to S3
+- [~] Multi-VPS deployment support — documented, tested only on one host
 
 ---
 

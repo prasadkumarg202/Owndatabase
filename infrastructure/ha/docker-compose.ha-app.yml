@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# OwnDatabase on the Patroni HA cluster (see docs/ha.md)
+#
+# Start the cluster first, then the app with this override:
+#   docker compose -p odb-ha --env-file .env -f infrastructure/ha/docker-compose.ha.yml up -d
+#   docker compose -f docker-compose.yml -f infrastructure/ha/docker-compose.ha-app.yml up -d --build
+#
+# What changes compared with the single-node stack:
+#   * `postgres` is an HAProxy on both networks that always routes to the current
+#     Patroni primary, so no service configuration changes.
+#   * `ha-init` creates the database, extensions and API roles on the cluster
+#     (the single node does this from docker-entrypoint-initdb.d) before
+#     control-api runs the migrations.
+#   * the single-node pgBackRest sidecar is disabled — it needs the data
+#     directory on the same host (see docs/ha.md → Backups).
+#   * Prometheus scrapes Patroni on every node (replication, leader, timeline).
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  postgres:
+    build: !reset null
+    image: haproxy:2.9-alpine
+    command: !reset null
+    environment: !reset {}
+    volumes: !override
+      - ./infrastructure/ha/haproxy-app.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      - owndatabase-ha
+    healthcheck:
+      # healthy once a primary is marked UP
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:7000/;csv' | grep -qE '^primary,pg[0-9]+,.*,UP,'"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  ha-init:
+    image: postgres:16-alpine
+    container_name: owndatabase-ha-init
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-owndatabase}
+    volumes:
+      - ./infrastructure/postgres/init/00_init.sh:/ha-init/00_init.sh:ro
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        psql -d postgres -XAtc "SELECT 1 FROM pg_database WHERE datname = '$$POSTGRES_DB'" | grep -q 1 \
+          || createdb "$$POSTGRES_DB"
+        bash /ha-init/00_init.sh
+    networks:
+      - owndatabase
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  control-api:
+    depends_on:
+      ha-init:
+        condition: service_completed_successfully
+
+  pgbackrest:
+    profiles: ["single-node"]
+
+  prometheus:
+    volumes:
+      - ./infrastructure/ha/prometheus-patroni.yml:/etc/prometheus/scrape.d/patroni.yml:ro
+    networks:
+      - owndatabase-ha
+
+networks:
+  owndatabase-ha:
+    external: true

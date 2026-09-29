@@ -1,18 +1,19 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# OwnDatabase — Phase 10 HA template  (UNTESTED TEMPLATE — read docs/ha.md)
+# OwnDatabase — Phase 10 HA cluster (see docs/ha.md)
 #
 # Three Patroni-managed PostgreSQL 16 nodes (Spilo image) + a 3-node etcd DCS +
 # HAProxy that routes :5000 → current primary and :5001 → healthy replicas.
+# Failover and running the whole app on it are covered by tests/test_phase10_ha.py.
 #
-# This file was written as a starting point and has NOT been run end-to-end.
-# In production each pg node belongs on its own VPS; this single-host layout is
-# for rehearsing failover only.
+#   docker compose -p odb-ha --env-file .env -f infrastructure/ha/docker-compose.ha.yml up -d
+#   docker compose -f docker-compose.yml -f infrastructure/ha/docker-compose.ha-app.yml up -d --build
 #
-#   docker compose -f infrastructure/ha/docker-compose.ha.yml up -d
-#   Then point DATABASE_URL at haproxy:5000 (writes) and READ_DATABASE_URL at haproxy:5001.
+# This single-host layout rehearses failover; in production put each pgN and
+# etcdN on its own server (docs/ha.md → Multi-VPS).
 # ─────────────────────────────────────────────────────────────────────────────
 x-etcd: &etcd
   image: quay.io/coreos/etcd:v3.5.15
+  restart: unless-stopped
   networks: [owndatabase-ha]
   environment: &etcd-env
     ETCD_INITIAL_CLUSTER: etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
@@ -22,9 +23,14 @@ x-etcd: &etcd
     ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
 
 x-pg: &pg
-  image: ghcr.io/zalando/spilo-16:3.3-p2
+  image: ghcr.io/zalando/spilo-16:3.3-p3   # Patroni 3.3.3 (3.3.2 emits invalid metrics on replicas)
+  restart: unless-stopped
   networks: [owndatabase-ha]
-  depends_on: [etcd1, etcd2, etcd3]
+  depends_on:
+    etcd1: { condition: service_started }
+    etcd2: { condition: service_started }
+    etcd3: { condition: service_started }
+    backup-s3-setup: { condition: service_completed_successfully }
   environment: &pg-env
     SCOPE: owndatabase
     ETCDCTL_ENDPOINTS: http://etcd1:2379,http://etcd2:2379,http://etcd3:2379
@@ -33,6 +39,24 @@ x-pg: &pg
     PGPASSWORD_SUPERUSER: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     PGPASSWORD_STANDBY: ${PATRONI_REPLICATION_PASSWORD:?set PATRONI_REPLICATION_PASSWORD}
     PGPASSWORD_ADMIN: ${PATRONI_ADMIN_PASSWORD:?set PATRONI_ADMIN_PASSWORD}
+    # Backups: WAL-G archives every WAL segment and takes a base backup on
+    # BACKUP_SCHEDULE, encrypted with libsodium, to S3. The defaults use the
+    # bundled backup-s3 (same host); for real disaster recovery set HA_BACKUP_S3_*
+    # to an off-site bucket. Replaces pgBackRest, which is single-node only here.
+    USE_WALG_BACKUP: "true"
+    USE_WALG_RESTORE: "true"
+    WALG_S3_PREFIX: ${HA_BACKUP_S3_PREFIX:-s3://owndatabase-ha-backups/owndatabase}
+    AWS_ENDPOINT: ${HA_BACKUP_S3_ENDPOINT:-http://backup-s3:8333}
+    WALE_S3_ENDPOINT: ${HA_BACKUP_WALE_S3_ENDPOINT:-http+path://backup-s3:8333}
+    AWS_S3_FORCE_PATH_STYLE: "true"
+    AWS_REGION: ${HA_BACKUP_S3_REGION:-us-east-1}
+    AWS_ACCESS_KEY_ID: ${HA_BACKUP_S3_ACCESS_KEY:-ha-backups}
+    AWS_SECRET_ACCESS_KEY: ${HA_BACKUP_S3_SECRET_KEY:-ha-backups}
+    WALG_DISABLE_S3_SSE: "true"
+    WALG_LIBSODIUM_KEY: ${HA_BACKUP_ENCRYPTION_KEY:?set HA_BACKUP_ENCRYPTION_KEY (openssl rand -hex 32)}
+    WALG_LIBSODIUM_KEY_TRANSFORM: hex
+    BACKUP_SCHEDULE: ${HA_BACKUP_SCHEDULE:-0 1 * * *}
+    BACKUP_NUM_TO_RETAIN: ${HA_BACKUP_NUM_TO_RETAIN:-5}
     SPILO_CONFIGURATION: |
       bootstrap:
         dcs:
@@ -50,6 +74,26 @@ x-pg: &pg
               shared_preload_libraries: pg_stat_statements
               pg_stat_statements.track: all
               track_utility: "off"
+              archive_timeout: 60   # Spilo's default is 30 min; match single-node PITR granularity
+      postgresql:
+        parameters:
+          # Spilo preloads pgextwlist, which lets ANY role create ~20 extensions
+          # (postgres_fdw, hstore, ...). OwnDatabase decides which extensions a
+          # project may use (ALLOWED_EXTENSIONS), so turn the whitelist off.
+          extwlist.extensions: ""
+        # Same policy as the single-node pg_hba.conf: password (scram) auth from
+        # private networks, nothing else. Spilo's default rejects all non-SSL
+        # connections, which the app services do not use inside Docker.
+        pg_hba:
+          - local all all trust
+          - host all all 127.0.0.1/32 scram-sha-256
+          - host replication standby 10.0.0.0/8 scram-sha-256
+          - host replication standby 172.16.0.0/12 scram-sha-256
+          - host replication standby 192.168.0.0/16 scram-sha-256
+          - host all all 10.0.0.0/8 scram-sha-256
+          - host all all 172.16.0.0/12 scram-sha-256
+          - host all all 192.168.0.0/16 scram-sha-256
+          - host all all 0.0.0.0/0 reject
   healthcheck:
     test: ["CMD", "curl", "-fsS", "http://localhost:8008/health"]
     interval: 10s
@@ -65,6 +109,31 @@ services:
   pg2: { <<: *pg, hostname: pg2, volumes: [pg2_data:/home/postgres/pgdata] }
   pg3: { <<: *pg, hostname: pg3, volumes: [pg3_data:/home/postgres/pgdata] }
 
+  # Same-host S3 for WAL-G, for rehearsal. Production: an off-site bucket (HA_BACKUP_S3_*).
+  backup-s3:
+    image: chrislusf/seaweedfs:latest
+    restart: unless-stopped
+    command: "server -s3 -s3.port=8333 -dir=/data"
+    networks: [owndatabase-ha]
+    volumes: [backup_s3_data:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8333/ >/dev/null 2>&1 || wget -S -qO- http://127.0.0.1:8333/ 2>&1 | grep -q HTTP"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backup-s3-setup:
+    image: amazon/aws-cli:latest
+    networks: [owndatabase-ha]
+    depends_on:
+      backup-s3: { condition: service_healthy }
+    environment:
+      AWS_ACCESS_KEY_ID: ${HA_BACKUP_S3_ACCESS_KEY:-ha-backups}
+      AWS_SECRET_ACCESS_KEY: ${HA_BACKUP_S3_SECRET_KEY:-ha-backups}
+      AWS_DEFAULT_REGION: ${HA_BACKUP_S3_REGION:-us-east-1}
+    entrypoint: ["/bin/sh", "-c", "aws --endpoint-url=http://backup-s3:8333 s3 mb s3://owndatabase-ha-backups 2>/dev/null; aws --endpoint-url=http://backup-s3:8333 s3 ls s3://owndatabase-ha-backups >/dev/null"]
+    restart: on-failure
+
   haproxy:
     image: haproxy:2.9-alpine
     networks: [owndatabase-ha]
@@ -77,6 +146,7 @@ services:
       - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
 
 volumes:
+  backup_s3_data:
   pg1_data:
   pg2_data:
   pg3_data:

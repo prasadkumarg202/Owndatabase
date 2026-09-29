@@ -3,6 +3,9 @@
 The PITR round-trip rolls the WHOLE cluster back a few seconds, so it only runs
 with ODB_DESTRUCTIVE_TESTS=1. It drives scripts/pitr-restore.sh, which needs
 bash and the docker CLI on the test machine.
+
+With ODB_HA=1 (app running on the Patroni cluster) backups are made by WAL-G
+instead; those are covered in test_phase10_ha.py.
 """
 import os
 import shutil
@@ -15,6 +18,8 @@ import requests
 from odb import URLS, wait_until
 
 ROOT = Path(__file__).resolve().parent.parent
+single_node_only = pytest.mark.skipif(os.environ.get("ODB_HA") == "1",
+                                      reason="pgBackRest is single-node; HA backups are tested in test_phase10_ha.py")
 
 
 def cluster_backups(admin) -> dict:
@@ -27,6 +32,7 @@ def test_cluster_backups_are_platform_admin_only(owner):
     assert owner.get("/cluster/backups").status_code == 403
 
 
+@single_node_only
 def test_cluster_backup_status(platform_admin):
     b = wait_until(lambda: (lambda x: x if x["backups"] else None)(cluster_backups(platform_admin)),
                    timeout=120, interval=5, message="first pgBackRest backup")
@@ -47,6 +53,7 @@ def test_wal_is_archived_continuously(platform_admin, fresh_project):
     assert cluster_backups(platform_admin)["wal_archive"]["failed_count"] == 0
 
 
+@single_node_only
 @pytest.mark.skipif(os.environ.get("ODB_DESTRUCTIVE_TESTS") != "1",
                     reason="rolls the whole cluster back: set ODB_DESTRUCTIVE_TESTS=1")
 def test_point_in_time_restore(fresh_project):
