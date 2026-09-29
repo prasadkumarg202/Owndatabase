@@ -253,3 +253,28 @@
 | 14 | Restore backup | 7 |
 | 15 | View logs | 6 |
 | 16 | View metrics | 6 |
+
+---
+
+## Phase 11 — Supabase parity
+
+**Goal:** close the gaps that block moving production apps (e.g. Vaartanow) off Supabase.
+
+- [x] pgvector + PostGIS in the single-node image
+- [x] Phone auth (SMS OTP) — [phone-auth.md](phone-auth.md)
+- [x] Function isolation — [functions.md](functions.md)
+- [x] Organization invitations by email (accept / decline / revoke, role rules, dashboard page)
+- [ ] Database webhooks (table change → HTTP)
+- [ ] Read-replica routing for REST reads
+- [ ] Usage limits / quotas per project
+- [ ] API key rotation workflow
+- [ ] Per-project migrations + CLI `db push/pull/reset`, `migration new`
+- [ ] Per-key rate limits
+- [ ] Postgres-native queues
+- [ ] OpenTelemetry traces
+- [ ] Custom domains
+- [ ] Branching
+- [ ] JavaScript SDK
+- [ ] GraphQL
+- [ ] Billing
+- [ ] Bot detection (CAPTCHA on auth)

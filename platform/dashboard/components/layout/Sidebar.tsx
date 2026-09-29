@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, FolderOpen, Database, Code2, Users, HardDrive, Radio, Zap, Clock, ListOrdered,
-  Archive, ScrollText, Activity, Settings, BarChart2, ExternalLink, Home,
+  Archive, ScrollText, Activity, Settings, BarChart2, ExternalLink, Home, Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +41,7 @@ export function Sidebar() {
         { items: [
           { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
           { label: 'Projects', href: '/projects', icon: FolderOpen },
+          { label: 'Organizations', href: '/organizations', icon: Building2 },
           { label: 'System status', href: '/status', icon: Activity },
         ] },
       ];

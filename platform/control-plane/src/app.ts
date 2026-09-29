@@ -18,6 +18,7 @@ import { metricsPlugin } from './plugins/metrics.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { organizationRoutes } from './routes/organizations.js';
+import { invitationRoutes, orgInvitationRoutes } from './routes/invitations.js';
 import { projectRoutes } from './routes/projects.js';
 import { apiKeyRoutes } from './routes/api-keys.js';
 import { secretRoutes } from './routes/secrets.js';
@@ -90,6 +91,8 @@ export async function buildApp() {
   await server.register(healthRoutes, { prefix: '/api/health' });
   await server.register(authRoutes, { prefix: '/api/auth' });
   await server.register(organizationRoutes, { prefix: '/api/organizations' });
+  await server.register(orgInvitationRoutes, { prefix: '/api/organizations' });
+  await server.register(invitationRoutes, { prefix: '/api/invitations' });
   await server.register(projectRoutes, { prefix: '/api/projects' });
   await server.register(databaseRoutes, { prefix: '/api/projects' });
   await server.register(functionRoutes, { prefix: '/api/projects' });

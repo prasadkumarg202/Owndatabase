@@ -28,7 +28,8 @@ export function LoginForm() {
       const r = await api.post('/auth/login', { email, password });
       tokens.set(r.access_token, r.refresh_token);
       const next = params.get('next');
-      router.replace(next && next.startsWith('/') ? next : '/dashboard');
+      // same-origin paths only: '//host' and '/\host' would leave the site
+      router.replace(next && /^\/(?![/\\])/.test(next) ? next : '/dashboard');
     } catch (err) {
       setError((err as Error).message);
     } finally {

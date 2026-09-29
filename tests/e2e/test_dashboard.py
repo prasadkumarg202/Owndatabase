@@ -266,6 +266,23 @@ def test_12_logs_reports_settings(page: Page, dashboard_url, ui_user, state):
     shot(page, "12-settings")
 
 
+def test_12b_invite_to_organization(page: Page, dashboard_url, ui_user):
+    login(page, dashboard_url, ui_user)
+    page.goto(f"{dashboard_url}/organizations")
+    expect(page.get_by_test_id("members-table")).to_contain_text(ui_user["email"], timeout=15_000)
+    page.get_by_label("Email", exact=True).fill("teammate@example.com")
+    page.get_by_label("Role", exact=True).select_option("viewer")
+    page.get_by_test_id("send-invite").click()
+    expect(page.get_by_test_id("invites-table")).to_contain_text("teammate@example.com", timeout=10_000)
+    link = page.get_by_test_id("invite-link").inner_text()
+    token = re.search(r"/invite/([\w-]+)", link).group(1)
+    shot(page, "13-organization")
+    # opened by someone signed in with another address: explained, no accept button
+    page.goto(f"{dashboard_url}/invite/{token}")
+    expect(page.get_by_test_id("invite-details")).to_contain_text("different email", timeout=15_000)
+    expect(page.get_by_test_id("accept-invite")).to_have_count(0)
+
+
 def test_13_sign_out(page: Page, dashboard_url, ui_user):
     login(page, dashboard_url, ui_user)
     page.get_by_test_id("user-menu").click()
