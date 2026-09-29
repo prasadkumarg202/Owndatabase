@@ -275,6 +275,12 @@ def test_12_logs_reports_settings(page: Page, dashboard_url, ui_user, state):
     expect(page.get_by_test_id("new-key-value")).to_contain_text("odb_anon_", timeout=10_000)
     page.keyboard.press("Escape")
     expect(page.get_by_test_id("keys-table")).to_contain_text("Mobile app")
+    # rotate it: new key shown once, old one marked as rotating
+    page.get_by_role("button", name="Rotate Mobile app").click()
+    page.get_by_test_id("confirm-rotate").click()
+    expect(page.get_by_test_id("new-key-value")).to_contain_text("odb_anon_", timeout=10_000)
+    page.keyboard.press("Escape")
+    expect(page.get_by_test_id("keys-table")).to_contain_text("rotating")
     page.get_by_role("tab", name="Secrets").click()
     page.get_by_label("Name").fill("PAYMENT_KEY")
     page.get_by_label("Value").fill("sk_test_123")

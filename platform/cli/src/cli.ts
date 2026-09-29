@@ -4,7 +4,7 @@
  *
  *   odb login [--email you@x.com]            odb projects list | create <name> | info <id>
  *   odb db tables <project> | exec <project> -q "select 1" | dump <project>
- *   odb keys list|create|revoke   odb secrets list|set|delete   odb storage buckets|create-bucket|upload|ls
+ *   odb keys list|create|revoke|rotate|rotate-all   odb secrets list|set|delete   odb storage buckets|create-bucket|upload|ls
  *   odb functions list|deploy|logs|invoke   odb backups list|create|restore   odb logs <project>   odb status
  *
  * Global: --json for machine-readable output. Env: ODB_URL, ODB_TOKEN, ODB_API_KEY, ODB_CONFIG.
@@ -111,6 +111,24 @@ keys.command('create <projectId>').requiredOption('--name <name>').option('--typ
     console.log(r.key);
   }));
 keys.command('revoke <keyId>').action(run(async (k) => { await api(`/api/keys/${k}`, { method: 'DELETE' }); console.log(green('✓ Key revoked')); }));
+keys.command('rotate <keyId>').description('Replace a key; the old one keeps working for --grace seconds (0 = revoke now)')
+  .option('--grace <seconds>', 'grace period for the old key', '3600')
+  .action(run(async (k, o) => {
+    const r = await api(`/api/keys/${k}/rotate`, { method: 'POST', json: { grace_period_seconds: Number(o.grace) } });
+    if (program.opts()['json']) return print(r);
+    console.log(green(`✓ ${r.type} key rotated`) + dim(` (new id ${r.id})`));
+    console.log(r.previous_key.revoked ? dim('The old key was revoked.') : dim(`The old key works until ${r.previous_key.expires_at}.`));
+    console.log(yellow('Store the new key now — it will not be shown again:'));
+    console.log(r.key);
+  }));
+keys.command('rotate-all <projectId>').description('Rotate every active key of a project (e.g. after a leak)')
+  .option('--grace <seconds>', 'grace period for the old keys', '0').option('--type <types>', 'comma-separated key types to rotate')
+  .action(run(async (id, o) => {
+    const r = await api('/api/keys/rotate', { method: 'POST', json: { project_id: id, grace_period_seconds: Number(o.grace), ...(o.type ? { types: String(o.type).split(',') } : {}) } });
+    if (program.opts()['json']) return print(r);
+    console.log(green(`✓ ${r.data.length} key(s) rotated`) + yellow(' — store the new keys now:'));
+    for (const k of r.data) console.log(`  ${k.type.padEnd(13)} ${k.name.padEnd(20)} ${k.key}`);
+  }));
 
 // ── secrets ─────────────────────────────────────────────────────────────────
 const secrets = program.command('secrets').description('Encrypted secrets (available to functions as env)');

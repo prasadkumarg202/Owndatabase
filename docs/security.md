@@ -123,7 +123,10 @@ Three key types with separate permissions:
 
 - `service_role` key must **never** appear in frontend code
 - Keys are hashed before storage, shown once on creation
-- Keys can be rotated, revoked, scoped to IP ranges
+- Keys can be revoked, and rotated with a grace period: `POST /api/keys/:id/rotate {grace_period_seconds}`
+  (0 = revoke now) or all of a project's keys at once with `POST /api/keys/rotate` (dashboard: Settings →
+  API keys → Rotate; CLI: `odb keys rotate` / `odb keys rotate-all`). A rotated key stops working exactly
+  when its grace period ends — cached lookups never outlive a key's expiry.
 
 ### Rate Limiting
 

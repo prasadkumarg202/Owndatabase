@@ -83,9 +83,11 @@ export class PlatformAuth {
     const [row] = await this.db`
       UPDATE control_plane.api_keys SET last_used_at = NOW()
       WHERE key_hash = ${hash} AND is_active AND (expires_at IS NULL OR expires_at > NOW())
-      RETURNING id, project_id, type::text AS type`;
-    const value = (row as KeyInfo | undefined) ?? null;
-    this.keyCache.set(hash, { value, exp: Date.now() + TTL_MS });
+      RETURNING id, project_id, type::text AS type, expires_at`;
+    const value = row ? { id: row['id'], project_id: row['project_id'], type: row['type'] } as KeyInfo : null;
+    // never cache a key past its expiry (rotated keys expire after their grace period)
+    const expiresAt = row?.['expires_at'] ? new Date(row['expires_at'] as string).getTime() : Infinity;
+    this.keyCache.set(hash, { value, exp: Math.min(Date.now() + TTL_MS, expiresAt) });
     return value;
   }
 

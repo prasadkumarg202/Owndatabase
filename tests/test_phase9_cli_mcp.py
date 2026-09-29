@@ -55,6 +55,8 @@ def test_cli_end_to_end(odb, owner, tmp_path):
 
     key = json.loads(odb("--json", "keys", "create", pid, "--name", "ci", "--type", "anon").stdout)
     assert key["key"].startswith("odb_anon_")
+    rotated = json.loads(odb("--json", "keys", "rotate", key["id"], "--grace", "0").stdout)
+    assert rotated["rotated_from"] == key["id"] and rotated["key"] != key["key"] and rotated["previous_key"]["revoked"] is True
     odb("secrets", "set", pid, "CLI_SECRET", input="value-from-stdin\n")
     assert "CLI_SECRET" in odb("secrets", "list", pid).stdout
 

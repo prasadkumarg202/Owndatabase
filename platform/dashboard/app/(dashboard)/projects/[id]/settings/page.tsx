@@ -61,16 +61,29 @@ function Keys({ id }: { id: string }) {
   const keys = useQuery({ queryKey: ['keys', id], queryFn: () => api.get(`/keys?project_id=${id}`).then((r) => r.data as any[]) });
   const create = useMutation({ mutationFn: () => api.post('/keys', { project_id: id, ...form }), onSuccess: (r) => { setCreated(r); setOpen(false); qc.invalidateQueries({ queryKey: ['keys', id] }); } });
   const revoke = useMutation({ mutationFn: (k: string) => api.delete(`/keys/${k}`), onSuccess: () => { toast.success('Key revoked'); qc.invalidateQueries({ queryKey: ['keys', id] }); } });
+  const [rotating, setRotating] = useState<any>(null);
+  const [grace, setGrace] = useState('3600');
+  const rotate = useMutation({
+    mutationFn: () => api.post(`/keys/${rotating.id}/rotate`, { grace_period_seconds: Number(grace) }),
+    onSuccess: (r) => { setRotating(null); setCreated(r); qc.invalidateQueries({ queryKey: ['keys', id] }); },
+  });
+  const status = (k: any) => !k.is_active ? <Badge tone="red">revoked</Badge>
+    : !k.usable ? <Badge tone="red">expired</Badge>
+    : k.rotated_at ? <Badge tone="yellow">rotating — until {formatDate(k.expires_at)}</Badge>
+    : <Badge tone="green">active</Badge>;
   return (
     <Card title="API keys" description="anon keys are safe in browsers (RLS applies). service_role keys bypass RLS — keep them on servers."
       actions={<Button size="sm" onClick={() => setOpen(true)} data-testid="new-key"><Plus className="h-3.5 w-3.5" />New key</Button>} bodyClassName="p-0">
       <DataTable testId="keys-table" data={keys.data} columns={[
         { key: 'name', label: 'Name' }, { key: 'type', label: 'Type', render: (k: any) => <Badge tone={k.type === 'anon' ? 'blue' : 'purple'}>{k.type}</Badge> },
         { key: 'key_prefix', label: 'Key', render: (k: any) => <code className="text-xs">{k.key_prefix}…</code> },
-        { key: 'is_active', label: 'Status', render: (k: any) => k.is_active ? <Badge tone="green">active</Badge> : <Badge tone="red">revoked</Badge> },
+        { key: 'is_active', label: 'Status', render: status },
         { key: 'last_used_at', label: 'Last used', render: (k: any) => timeAgo(k.last_used_at) },
         { key: 'created_at', label: 'Created', render: (k: any) => formatDate(k.created_at, false) },
-        { key: 'x', label: '', render: (k: any) => k.is_active && <Button size="sm" variant="ghost" onClick={() => { if (confirm(`Revoke ${k.name}? Apps using it stop working.`)) revoke.mutate(k.id); }}>Revoke</Button> },
+        { key: 'x', label: '', render: (k: any) => k.usable && <div className="flex justify-end gap-1">
+          {!k.rotated_at && <Button size="sm" variant="ghost" onClick={() => setRotating(k)} aria-label={`Rotate ${k.name}`}>Rotate</Button>}
+          <Button size="sm" variant="ghost" onClick={() => { if (confirm(`Revoke ${k.name}? Apps using it stop working.`)) revoke.mutate(k.id); }}>Revoke</Button>
+        </div> },
       ]} />
       <Modal open={open} onClose={() => setOpen(false)} title="Create API key"
         footer={<><Button variant="secondary" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={() => create.mutate()} loading={create.isPending} disabled={!form.name} data-testid="create-key">Create</Button></>}>
@@ -80,8 +93,22 @@ function Keys({ id }: { id: string }) {
           <Select label="Type" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} options={[{ value: 'anon', label: 'anon — public, RLS applies' }, { value: 'service_role', label: 'service_role — server only, bypasses RLS' }]} />
         </div>
       </Modal>
-      <Modal open={!!created} onClose={() => setCreated(null)} title="Key created">
-        {created && <div className="space-y-2"><p className="text-sm text-amber-700">Copy this key now. It will not be shown again.</p><CopyField value={created.key} testId="new-key-value" /></div>}
+      <Modal open={!!rotating} onClose={() => setRotating(null)} title={`Rotate ${rotating?.name ?? ''}`}
+        footer={<><Button variant="secondary" onClick={() => setRotating(null)}>Cancel</Button><Button onClick={() => rotate.mutate()} loading={rotate.isPending} data-testid="confirm-rotate">Rotate key</Button></>}>
+        <div className="space-y-3 text-sm">
+          <ErrorBox error={rotate.error} />
+          <p>A new {rotating?.type} key replaces this one. Deploy it to your apps; the old key keeps working until the grace period ends.</p>
+          <Select label="Old key stops working" value={grace} onChange={(e) => setGrace(e.target.value)} options={[
+            { value: '0', label: 'Immediately (key leaked)' }, { value: '900', label: 'In 15 minutes' }, { value: '3600', label: 'In 1 hour' },
+            { value: '86400', label: 'In 24 hours' }, { value: '604800', label: 'In 7 days' }]} />
+        </div>
+      </Modal>
+      <Modal open={!!created} onClose={() => setCreated(null)} title={created?.rotated_from ? 'Key rotated' : 'Key created'}>
+        {created && <div className="space-y-2">
+          <p className="text-sm text-amber-700">Copy this key now. It will not be shown again.</p>
+          <CopyField value={created.key} testId="new-key-value" />
+          {created.previous_key && <p className="text-xs text-gray-500">{created.previous_key.revoked ? 'The old key was revoked.' : `The old key (${created.previous_key.key_prefix}…) works until ${formatDate(created.previous_key.expires_at)}.`}</p>}
+        </div>}
       </Modal>
     </Card>
   );
