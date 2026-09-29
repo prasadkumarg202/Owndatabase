@@ -283,6 +283,16 @@ def test_12_logs_reports_settings(page: Page, dashboard_url, ui_user, state):
     shot(page, "12-settings")
 
 
+def test_12a_usage_and_limits(page: Page, dashboard_url, ui_user, state):
+    login(page, dashboard_url, ui_user)
+    page.goto(f"{state['project_url']}/settings")
+    page.get_by_role("tab", name="Usage & limits").click()
+    usage = page.get_by_test_id("usage-limits")
+    expect(usage).to_contain_text("API requests today")
+    expect(usage).to_contain_text("unlimited")
+    expect(page.get_by_test_id("save-limits")).to_have_count(0)   # not a platform admin
+
+
 def test_12b_invite_to_organization(page: Page, dashboard_url, ui_user):
     login(page, dashboard_url, ui_user)
     page.goto(f"{dashboard_url}/organizations")

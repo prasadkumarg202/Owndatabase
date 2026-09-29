@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
-import { api, formatDate, timeAgo } from '@/lib/api';
+import { api, formatBytes, formatDate, timeAgo } from '@/lib/api';
 import { useProject, useProjectId } from '@/lib/hooks';
 import { Card, ErrorBox, PageHeader, Tabs } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -159,13 +159,73 @@ function DatabaseSettings({ id }: { id: string }) {
   );
 }
 
+const LIMITS: { key: string; label: string; bytes?: boolean }[] = [
+  { key: 'api_requests_per_day', label: 'API requests today' },
+  { key: 'function_invocations_per_day', label: 'Function invocations today' },
+  { key: 'database_bytes', label: 'Database size', bytes: true },
+  { key: 'storage_bytes', label: 'Storage', bytes: true },
+  { key: 'auth_users', label: 'Auth users' },
+  { key: 'realtime_connections', label: 'Realtime connections (concurrent)' },
+];
+
+function Usage({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const data = useQuery({ queryKey: ['limits', id], queryFn: () => api.get(`/projects/${id}/limits`), refetchInterval: 30_000 });
+  const me = useQuery({ queryKey: ['me'], queryFn: () => api.get('/auth/me') });
+  const [edit, setEdit] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (data.data) setEdit(Object.fromEntries(LIMITS.map((l) => [l.key, data.data.limits[l.key] === null ? '' : String(data.data.limits[l.key])])));
+  }, [data.data]);
+  const save = useMutation({
+    mutationFn: () => api.put(`/projects/${id}/limits`, Object.fromEntries(LIMITS.map((l) => [l.key, edit[l.key]?.trim() ? Number(edit[l.key]) : null]))),
+    onSuccess: () => { toast.success('Limits saved'); qc.invalidateQueries({ queryKey: ['limits', id] }); },
+  });
+  const fmt = (v: number | null | undefined, bytes?: boolean) => (v === null || v === undefined ? '—' : bytes ? formatBytes(v) : v.toLocaleString());
+  const d = data.data;
+  return (
+    <div className="space-y-6">
+      {d?.read_only && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700" data-testid="read-only-banner">
+          This project is over its database size limit and is <strong>read-only</strong>: inserts and updates are refused. Delete data or ask a platform admin for a higher limit.
+        </div>
+      )}
+      <Card title="Usage & limits" description="Limits are set by platform administrators. Daily counters reset at 00:00 UTC.">
+        <div className="space-y-4" data-testid="usage-limits">
+          {LIMITS.map((l) => {
+            const used = d?.usage?.[l.key] ?? null;
+            const max = d?.limits?.[l.key] ?? null;
+            const pct = used !== null && max ? Math.min(100, Math.round((used / max) * 100)) : null;
+            return (
+              <div key={l.key}>
+                <div className="flex justify-between text-sm"><span className="text-gray-700">{l.label}</span>
+                  <span className="text-gray-500">{fmt(used, l.bytes)} / {max === null ? 'unlimited' : fmt(max, l.bytes)}</span></div>
+                {pct !== null && <div className="mt-1 h-1.5 rounded bg-gray-100"><div className={`h-1.5 rounded ${pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${pct}%` }} /></div>}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+      {me.data?.is_platform_admin && (
+        <Card title="Edit limits" description="Platform admin only. Leave empty for unlimited; sizes in bytes.">
+          <div className="grid gap-3 md:grid-cols-2">
+            {LIMITS.map((l) => <Input key={l.key} label={l.key} type="number" min={0} value={edit[l.key] ?? ''} onChange={(e) => setEdit({ ...edit, [l.key]: e.target.value })} placeholder="unlimited" />)}
+          </div>
+          <div className="mt-3 flex items-center gap-3"><Button onClick={() => save.mutate()} loading={save.isPending} data-testid="save-limits">Save limits</Button><ErrorBox error={save.error} /></div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const id = useProjectId();
   const [tab, setTab] = useState('general');
   return (
     <div>
       <PageHeader title="Project settings" />
-      <Tabs active={tab} onChange={setTab} tabs={[{ id: 'general', label: 'General' }, { id: 'keys', label: 'API keys' }, { id: 'secrets', label: 'Secrets' }, { id: 'database', label: 'Database' }]} />
+      <Tabs active={tab} onChange={setTab} tabs={[{ id: 'general', label: 'General' }, { id: 'usage', label: 'Usage & limits' }, { id: 'keys', label: 'API keys' }, { id: 'secrets', label: 'Secrets' }, { id: 'database', label: 'Database' }]} />
+      {tab === 'usage' && <Usage id={id} />}
       {tab === 'general' && <General id={id} />}
       {tab === 'keys' && <Keys id={id} />}
       {tab === 'secrets' && <Secrets id={id} />}

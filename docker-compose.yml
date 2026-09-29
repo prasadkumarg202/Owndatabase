@@ -209,6 +209,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-10}
       PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
+      # Usage limits for new projects (JSON), see docs/limits.md
+      DEFAULT_PROJECT_LIMITS: ${DEFAULT_PROJECT_LIMITS:-{}}
     volumes:
       - ./platform/control-plane/src:/app/src
       - ./platform/migrations:/app/migrations:ro

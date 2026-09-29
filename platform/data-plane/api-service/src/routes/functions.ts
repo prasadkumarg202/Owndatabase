@@ -18,6 +18,7 @@ import { config } from '../config.js';
 import { AuthError, type RequestAuth } from '../lib/platform-auth.js';
 import { platform } from '../middleware/auth.js';
 import { redis } from '../lib/schema-cache.js';
+import { limitOf, QUOTA_ERROR, secondsUntilUtcMidnight, utcDay } from '../lib/limits.js';
 
 const invocations = new Counter({ name: 'owndatabase_functions_invocations_total', help: 'Function invocations', labelNames: ['project_id', 'status'] });
 const durations = new Histogram({ name: 'owndatabase_functions_duration_seconds', help: 'Function duration', buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30] });
@@ -75,8 +76,6 @@ async function logInvocation(fn: any, r: RunResult) {
   await db`
     INSERT INTO control_plane.function_logs (function_id, project_id, version, status, status_code, duration_ms, logs, error)
     VALUES (${fn.id}, ${fn.project_id}, ${fn.version}, ${status}, ${r.status}, ${r.durationMs}, ${r.logs.join('\n').slice(0, 100_000)}, ${r.error ?? null})`;
-  const day = new Date().toISOString().slice(0, 10);
-  await redis.hincrby(`odb:usage:${fn.project_id}:${day}`, 'function_invocations', 1).catch(() => {});
 }
 
 const HOP_HEADERS = new Set(['host', 'connection', 'content-length', 'transfer-encoding', 'x-odb-internal']);
@@ -113,6 +112,14 @@ export default async function functionRoutes(server: FastifyInstance) {
     if (!fn || !fn['is_active']) return reply.status(404).send({ error: 'Not Found', message: `Function '${slug}' not found` });
     if (fn['verify_jwt'] && auth.role === 'anon') {
       return reply.status(401).send({ error: 'Unauthorized', message: 'This function requires a signed-in user (Authorization: Bearer <access token>)' });
+    }
+    // counted before running, so the daily quota can refuse the call
+    const used = await redis.hincrby(`odb:usage:${projectId}:${utcDay()}`, 'function_invocations', 1).catch(() => 0);
+    const daily = limitOf(auth.project, 'function_invocations_per_day');
+    if (daily !== null && used > daily) {
+      return reply.status(429).header('Retry-After', secondsUntilUtcMidnight()).send({
+        error: QUOTA_ERROR, message: `This project has used its ${daily} function invocations for today (resets at 00:00 UTC)`,
+      });
     }
     if (running >= config.FUNCTIONS_MAX_CONCURRENCY) {
       return reply.status(503).header('Retry-After', 1).send({ error: 'Busy', message: 'Too many concurrent function invocations' });

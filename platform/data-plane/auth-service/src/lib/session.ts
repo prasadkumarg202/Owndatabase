@@ -9,6 +9,7 @@ import { redis, redisSub } from './redis.js';
 import { config } from '../config.js';
 import { PlatformAuth, type ProjectInfo } from './platform-auth.js';
 import type { SmsSettings } from './sms.js';
+import { limitOf } from './limits.js';
 
 export const platform = new PlatformAuth(db, config.JWT_SECRET, redisSub);
 
@@ -131,6 +132,14 @@ export async function getUserByEmail(projectId: string, email: string): Promise<
   const [u] = await db<UserRow[]>`
     SELECT * FROM auth.users WHERE project_id = ${projectId} AND lower(email) = lower(${email}) AND deleted_at IS NULL`;
   return u ?? null;
+}
+
+/** The project's auth_users limit, if reached: an error message, else null. */
+export async function userQuotaError(project: ProjectInfo): Promise<string | null> {
+  const max = limitOf(project, 'auth_users');
+  if (max === null) return null;
+  const [r] = await db`SELECT count(*)::int AS n FROM auth.users WHERE project_id = ${project.id} AND deleted_at IS NULL`;
+  return Number(r?.['n'] ?? 0) >= max ? `This project has reached its limit of ${max} users` : null;
 }
 
 export async function getUserByPhone(projectId: string, phone: string): Promise<UserRow | null> {

@@ -9,6 +9,7 @@ import { db, testConnection } from './lib/db.js';
 import { redis } from './lib/redis.js';
 import { runMigrations } from './lib/migrate.js';
 import { closeQueues } from './lib/queues.js';
+import { startLimitWatcher, stopLimitWatcher } from './routes/limits.js';
 
 // Wait for PostgreSQL (container start order is not a readiness guarantee)
 for (let attempt = 1; ; attempt++) {
@@ -34,6 +35,7 @@ const server = await buildApp();
 try {
   await server.listen({ port: config.port, host: '0.0.0.0' });
   logger.info({ port: config.port, env: config.nodeEnv }, 'OwnDatabase Control API started');
+  startLimitWatcher();
 } catch (err) {
   logger.error(err, 'Failed to start server');
   process.exit(1);
@@ -42,6 +44,7 @@ try {
 const shutdown = async (signal: string) => {
   logger.info({ signal }, 'Shutdown signal received');
   try {
+    stopLimitWatcher();
     await server.close();
     await closeQueues();
     await db.end({ timeout: 5 });

@@ -16,7 +16,8 @@ import { sendMagicLinkEmail, sendVerificationEmail } from '../lib/email.js';
 import { normalizePhone, sendSmsCode, smsAvailable, SmsNotConfigured } from '../lib/sms.js';
 import { authPublicUrl, config } from '../config.js';
 import { projectContext } from '../middleware/auth.js';
-import { allow, audit, authSettings, getUserByEmail, getUserById, getUserByPhone, isAllowedRedirect, issueSession, type UserRow } from '../lib/session.js';
+import { allow, audit, authSettings, getUserByEmail, getUserById, getUserByPhone, isAllowedRedirect, issueSession, type UserRow, userQuotaError } from '../lib/session.js';
+import { QUOTA_ERROR } from '../lib/limits.js';
 import type { ProjectInfo } from '../lib/platform-auth.js';
 
 type OtpType = 'email_verify' | 'magic_link' | 'password_reset' | 'phone_login' | 'phone_verify';
@@ -142,6 +143,8 @@ async function phoneOtp(req: FastifyRequest, reply: FastifyReply) {
   if (!user) {
     // Same response either way: do not reveal which numbers exist
     if (!(body.data.options?.should_create_user ?? body.data.create_user) || !settings.enable_signup) return reply.send(SENT);
+    const quota = await userQuotaError(project);
+    if (quota) return reply.status(402).send({ error: QUOTA_ERROR, message: quota });
     const meta = body.data.data ?? body.data.options?.data ?? {};
     const [u] = await db<UserRow[]>`
       INSERT INTO auth.users (project_id, phone, raw_user_meta_data, raw_app_meta_data)
@@ -188,6 +191,8 @@ export default async function (server: FastifyInstance) {
         // Same response either way: do not reveal which emails exist
         return reply.send({ message: 'If the address can sign in, a code has been sent.' });
       }
+      const quota = await userQuotaError(project);
+      if (quota) return reply.status(402).send({ error: QUOTA_ERROR, message: quota });
       const [u] = await db<UserRow[]>`
         INSERT INTO auth.users (project_id, email, raw_user_meta_data, raw_app_meta_data)
         VALUES (${project.id}, ${body.data.email}, ${db.json((body.data.data ?? {}) as any)}, ${db.json({ provider: 'email', providers: ['email'] })})

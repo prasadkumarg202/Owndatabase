@@ -12,7 +12,8 @@ import { z } from 'zod';
 import argon2 from 'argon2';
 import { db } from '../lib/db.js';
 import { serviceContext } from '../middleware/auth.js';
-import { ARGON2, audit, getUserByEmail, getUserById, publicUser, type UserRow } from '../lib/session.js';
+import { ARGON2, audit, getUserByEmail, getUserById, publicUser, type UserRow, userQuotaError } from '../lib/session.js';
+import { QUOTA_ERROR } from '../lib/limits.js';
 
 const UUID = /^[0-9a-f-]{36}$/i;
 
@@ -38,6 +39,8 @@ export default async function (server: FastifyInstance) {
     }).safeParse(req.body);
     if (!b.success) return reply.status(400).send({ error: 'Bad Request', message: b.error.errors[0]?.message ?? 'Invalid input' });
     if (await getUserByEmail(project.id, b.data.email)) return reply.status(409).send({ error: 'Conflict', message: 'User already registered' });
+    const quota = await userQuotaError(project);
+    if (quota) return reply.status(402).send({ error: QUOTA_ERROR, message: quota });
     const user = await db.begin(async (sql) => {
       const [u] = await sql<UserRow[]>`
         INSERT INTO auth.users (project_id, email, email_verified, confirmed_at, raw_user_meta_data, raw_app_meta_data)

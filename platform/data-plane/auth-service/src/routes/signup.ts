@@ -6,7 +6,8 @@ import { generateLinkToken, generateOTP, hashOTP } from '../lib/otp.js';
 import { sendVerificationEmail } from '../lib/email.js';
 import { config, authPublicUrl } from '../config.js';
 import { projectContext } from '../middleware/auth.js';
-import { allow, ARGON2, audit, authSettings, getUserByEmail, getUserByPhone, issueSession, publicUser, type UserRow } from '../lib/session.js';
+import { allow, ARGON2, audit, authSettings, getUserByEmail, getUserByPhone, issueSession, publicUser, type UserRow, userQuotaError } from '../lib/session.js';
+import { QUOTA_ERROR } from '../lib/limits.js';
 import { normalizePhone } from '../lib/sms.js';
 import { phoneAuthError, sendPhoneOtp } from './verify.js';
 
@@ -47,6 +48,10 @@ export default async function (server: FastifyInstance) {
     }
     const existing = await getUserByPhone(project.id, phone);
     if (existing?.phone_verified) return reply.status(409).send({ error: 'Conflict', message: 'User already registered' });
+    if (!existing) {
+      const quota = await userQuotaError(project);
+      if (quota) return reply.status(402).send({ error: QUOTA_ERROR, message: quota });
+    }
 
     const passwordHash = await argon2.hash(parsed.data.password, ARGON2);
     const metadata = parsed.data.data ?? parsed.data.options?.data ?? {};
@@ -89,6 +94,8 @@ export default async function (server: FastifyInstance) {
     if (await getUserByEmail(project.id, email)) {
       return reply.status(409).send({ error: 'Conflict', message: 'User already registered' });
     }
+    const quota = await userQuotaError(project);
+    if (quota) return reply.status(402).send({ error: QUOTA_ERROR, message: quota });
 
     const passwordHash = await argon2.hash(password, ARGON2);
     const confirmNow = !settings.require_email_confirmation;

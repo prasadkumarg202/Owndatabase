@@ -14,7 +14,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { db } from '../lib/db.js';
 import { authPublicUrl, config } from '../config.js';
 import { projectContext } from '../middleware/auth.js';
-import { audit, authSettings, getUserByEmail, isAllowedRedirect, issueSession, platform, type UserRow } from '../lib/session.js';
+import { audit, authSettings, getUserByEmail, isAllowedRedirect, issueSession, platform, type UserRow, userQuotaError } from '../lib/session.js';
 
 interface ProviderDef {
   authorize: string; token: string; userinfo: string; emails?: string; scope: string;
@@ -156,6 +156,8 @@ export default async function (server: FastifyInstance) {
     if (!user && profile.email && profile.email_verified) user = await getUserByEmail(projectId, profile.email);
     if (!user) {
       if (!settings.enable_signup) return fail('Signups are disabled for this project');
+      const quota = await userQuotaError(project);
+      if (quota) return fail(quota);
       const [u] = await db<UserRow[]>`
         INSERT INTO auth.users (project_id, email, email_verified, confirmed_at, raw_user_meta_data, raw_app_meta_data)
         VALUES (${projectId}, ${profile.email?.toLowerCase() ?? null}, ${profile.email_verified}, ${profile.email_verified ? new Date() : null},

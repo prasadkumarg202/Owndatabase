@@ -266,7 +266,7 @@
 - [x] Organization invitations by email (accept / decline / revoke, role rules, dashboard page)
 - [x] Database webhooks (table change → signed HTTP, transactional outbox, retries) — [webhooks.md](webhooks.md)
 - [x] Read-replica routing for REST reads (HA: HAProxy :5433, WAL-lag guard, primary fallback, `x-odb-read-consistency: strong`)
-- [ ] Usage limits / quotas per project
+- [x] Usage limits per project (requests, functions, storage, users, realtime, database size → read-only) — [limits.md](limits.md)
 - [ ] API key rotation workflow
 - [ ] Per-project migrations + CLI `db push/pull/reset`, `migration new`
 - [ ] Per-key rate limits

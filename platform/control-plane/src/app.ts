@@ -20,6 +20,7 @@ import { authRoutes } from './routes/auth.js';
 import { organizationRoutes } from './routes/organizations.js';
 import { invitationRoutes, orgInvitationRoutes } from './routes/invitations.js';
 import { dbWebhookRoutes } from './routes/db-webhooks.js';
+import { limitRoutes } from './routes/limits.js';
 import { projectRoutes } from './routes/projects.js';
 import { apiKeyRoutes } from './routes/api-keys.js';
 import { secretRoutes } from './routes/secrets.js';
@@ -99,6 +100,7 @@ export async function buildApp() {
   await server.register(functionRoutes, { prefix: '/api/projects' });
   await server.register(projectUserRoutes, { prefix: '/api/projects' });
   await server.register(dbWebhookRoutes, { prefix: '/api/projects' });
+  await server.register(limitRoutes, { prefix: '/api/projects' });
   await server.register(observabilityRoutes, { prefix: '/api' });
   await server.register(apiKeyRoutes, { prefix: '/api/keys' });
   await server.register(secretRoutes, { prefix: '/api/secrets' });

@@ -39,6 +39,19 @@ const configSchema = z.object({
   // Public URL the platform is reachable on (for generated endpoints)
   publicUrl: z.string().default('http://localhost'),
 
+  // Limits given to new projects (JSON, keys as in routes/limits.ts), e.g.
+  // {"api_requests_per_day":500000,"storage_bytes":1073741824,"database_bytes":524288000}
+  defaultProjectLimits: z.string().default('{}').transform((v, ctx) => {
+    try {
+      const o = JSON.parse(v || '{}');
+      if (!o || typeof o !== 'object' || Array.isArray(o)) throw new Error('not an object');
+      return o as Record<string, number | null>;
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'DEFAULT_PROJECT_LIMITS must be a JSON object' });
+      return z.NEVER;
+    }
+  }),
+
   // Observability backends (optional)
   prometheusUrl: z.string().optional(),
   lokiUrl: z.string().optional(),
@@ -74,6 +87,7 @@ function loadConfig() {
     loginRateLimitMax: e['LOGIN_RATE_LIMIT_MAX'],
     platformAdminEmails: e['PLATFORM_ADMIN_EMAILS'],
     publicUrl: e['PUBLIC_URL'] ?? e['SITE_URL'],
+    defaultProjectLimits: e['DEFAULT_PROJECT_LIMITS'],
     prometheusUrl: e['PROMETHEUS_URL'] || undefined,
     lokiUrl: e['LOKI_URL'] || undefined,
     sqlStatementTimeoutMs: e['SQL_STATEMENT_TIMEOUT_MS'],

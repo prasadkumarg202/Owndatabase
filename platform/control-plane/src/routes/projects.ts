@@ -23,6 +23,7 @@ import { ADMIN_ROLES, audit, ownerRole, requireProject, userId } from '../lib/ac
 import { dropProjectSchema, generateApiKey } from '../lib/provision.js';
 import { closeProjectDb, ensureProjectProvisioned, getProjectDbPassword, projectConnectionUrl } from '../lib/project-db.js';
 import { redis } from '../lib/redis.js';
+import { cleanLimits } from './limits.js';
 
 const REGIONS = ['local', 'in-south-1', 'us-east-1', 'eu-west-1'] as const;
 
@@ -178,7 +179,7 @@ export const projectRoutes: FastifyPluginAsync = async (server: FastifyInstance)
     const [project] = await db`
       INSERT INTO control_plane.projects (organization_id, name, slug, status, region, db_name, db_schema, settings)
       VALUES (${organization_id}, ${name}, ${slug}, 'creating', ${region}, current_database(), ${dbSchema},
-              ${db.json({ auth: DEFAULT_AUTH_CONFIG })})
+              ${db.json({ auth: DEFAULT_AUTH_CONFIG, limits: cleanLimits(config.defaultProjectLimits) } as any)})
       RETURNING *
     `;
     const projectId = project!['id'] as string;

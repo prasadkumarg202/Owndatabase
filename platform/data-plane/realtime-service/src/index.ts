@@ -28,6 +28,7 @@ import { Redis } from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
 import { AuthError, PlatformAuth, type ApiRole, type ProjectInfo } from './lib/platform-auth.js';
+import { limitOf } from './lib/limits.js';
 
 const PORT = Number(process.env['PORT'] ?? 3004);
 const DATABASE_URL = process.env['DATABASE_URL']!;
@@ -301,6 +302,15 @@ server.get('/realtime', { websocket: true }, async (conn: any, request) => {
     const msg = err instanceof AuthError ? err.message : 'Authentication failed';
     socket.send(JSON.stringify({ type: 'error', code: 'auth_failed', message: msg }));
     socket.close(4001, msg.slice(0, 100));
+    return;
+  }
+
+  // realtime_connections limit (counted per realtime instance)
+  const maxConn = limitOf(auth.project, 'realtime_connections');
+  if (maxConn !== null && [...clients.values()].filter((x) => x.project.id === auth.project.id).length >= maxConn) {
+    const msg = `This project has reached its limit of ${maxConn} realtime connections`;
+    socket.send(JSON.stringify({ type: 'error', code: 'quota_exceeded', message: msg }));
+    socket.close(4029, 'quota exceeded');
     return;
   }
 

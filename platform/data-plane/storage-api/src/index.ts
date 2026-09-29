@@ -41,6 +41,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import { z } from 'zod';
 import { AuthError, PlatformAuth, type RequestAuth } from './lib/platform-auth.js';
 import { createBackend } from './lib/backend.js';
+import { limitOf, QUOTA_ERROR } from './lib/limits.js';
 
 const PORT = Number(process.env['PORT'] ?? 3005);
 const DATABASE_URL = process.env['DATABASE_URL']!;
@@ -142,7 +143,7 @@ async function usage(projectId: string, field: string, n = 1) {
 }
 
 function fail(reply: FastifyReply, err: unknown) {
-  if (err instanceof HttpError) return reply.status(err.status).send({ error: err.status === 404 ? 'Not Found' : err.status === 403 ? 'Forbidden' : 'Error', statusCode: err.status, message: err.message });
+  if (err instanceof HttpError) return reply.status(err.status).send({ error: err.status === 404 ? 'Not Found' : err.status === 403 ? 'Forbidden' : err.status === 402 ? QUOTA_ERROR : 'Error', statusCode: err.status, message: err.message });
   const e = err as any;
   if (e?.code === '23505') return reply.status(409).send({ error: 'Conflict', message: 'Already exists' });
   reply.log.error({ err }, 'Storage error');
@@ -202,6 +203,18 @@ async function sendObject(req: FastifyRequest, reply: FastifyReply, b: Bucket, o
     reply.header('Content-Disposition', `attachment; filename="${String(filename).replace(/"/g, '')}"`);
   }
   return reply.type(obj.mime_type || 'application/octet-stream').header('Content-Length', stored.size).send(stored.stream);
+}
+
+/** Refuses a write that would take the project over its storage_bytes limit. */
+async function assertStorageQuota(project: { id: string; settings?: Record<string, any> | null }, adding: number, replacing = 0) {
+  const max = limitOf(project, 'storage_bytes');
+  if (max === null) return;
+  const [r] = await db`
+    SELECT COALESCE(sum(o.size_bytes), 0)::bigint AS used FROM storage.objects o JOIN storage.buckets b ON b.id = o.bucket_id
+    WHERE b.project_id = ${project.id} AND NOT o.is_deleted`;
+  if (Number(r?.['used'] ?? 0) - replacing + adding > max) {
+    throw new HttpError(402, `This upload would take the project over its storage limit of ${max} bytes`);
+  }
 }
 
 async function findObject(b: Bucket, path: string) {
@@ -364,6 +377,7 @@ async function upload(req: FastifyRequest, reply: FastifyReply, forceUpsert: boo
     const upsert = forceUpsert || String(req.headers['x-upsert'] ?? '') === 'true';
     if (existing && !upsert) throw new HttpError(409, 'The object already exists. Send x-upsert: true to overwrite.');
     if (!canWrite(a, b, existing ? (existing['owner'] as string | null) : undefined)) throw new HttpError(403, 'Not allowed to write to this bucket');
+    await assertStorageQuota(a.project, data.length, existing ? Number(existing['size_bytes']) : 0);
 
     const etag = createHash('md5').update(data).digest('hex');
     await backend.put(storageKey(b, path), data, mime);
@@ -531,6 +545,7 @@ for (const op of ['move', 'copy'] as const) {
       if (!canWrite(a, dst, (await findObject(dst, to))?.['owner'] as string | null | undefined) || (op === 'move' && !canWrite(a, src, obj['owner'] as string | null))) {
         throw new HttpError(403, `Not allowed to ${op} this object`);
       }
+      if (op === 'copy') await assertStorageQuota(a.project, Number(obj['size_bytes']), Number((await findObject(dst, to))?.['size_bytes'] ?? 0));
       await backend.copy(storageKey(src, from), storageKey(dst, to));
       await db`
         INSERT INTO storage.objects (bucket_id, name, owner, size_bytes, mime_type, etag, storage_path, metadata)
