@@ -233,6 +233,24 @@ tokens.command('create <name>').option('--days <n>', 'expires after n days (1-36
   }));
 tokens.command('revoke <tokenId>').action(run(async (t) => { await api(`/api/auth/tokens/${t}`, { method: 'DELETE' }); console.log(green('✓ Token revoked')); }));
 
+// ── branches ────────────────────────────────────────────────────────────────
+const branches = program.command('branches').description('Preview / development copies of a project');
+branches.command('list <projectId>').action(run(async (id) => print((await api(`/api/projects/${id}/branches`)).data, ['id', 'branch_name', 'status', 'unmerged_migrations', 'created_at'])));
+branches.command('create <projectId> <name>').option('--with-data', 'copy the rows too')
+  .action(run(async (id, name, o) => {
+    const r = await api(`/api/projects/${id}/branches`, { method: 'POST', json: { name, with_data: !!o.withData } });
+    if (program.opts()['json']) return print(r);
+    console.log(green(`✓ Branch ${name} created`) + dim(` (project ${r.id})`));
+    console.log(`  REST          ${r.endpoints.rest_url}\n  anon          ${r.api_keys.anon}\n  service_role  ${r.api_keys.service_role}`);
+  }));
+branches.command('merge <projectId> <branchId>').option('--dry-run', 'check the first pending migration only')
+  .action(run(async (id, b, o) => {
+    const r = await api(`/api/projects/${id}/branches/${b}/merge`, { method: 'POST', json: { dry_run: !!o.dryRun } });
+    if (program.opts()['json']) return print(r);
+    console.log(r.applied.length ? green(`✓ ${o.dryRun ? 'Checked' : 'Merged'} ${r.applied.join(', ')}`) : green('✓ Nothing to merge'));
+  }));
+branches.command('delete <projectId> <branchId>').action(run(async (id, b) => { await api(`/api/projects/${id}/branches/${b}`, { method: 'DELETE' }); console.log(green('✓ Branch deleted')); }));
+
 registerMigrationCommands(program, run);
 
 program.parseAsync().catch(fail);

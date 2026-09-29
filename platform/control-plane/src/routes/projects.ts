@@ -277,10 +277,15 @@ export const projectRoutes: FastifyPluginAsync = async (server: FastifyInstance)
     if (confirm !== p.slug) {
       return reply.status(400).send({ error: 'Confirmation Required', message: `Pass ?confirm=${p.slug} to delete this project and all of its data` });
     }
-    await db`UPDATE control_plane.projects SET status = 'deleting' WHERE id = ${id}`;
-    await invalidateProjectCache(id);
-    await closeProjectDb(id);
-    await dropProjectSchema(p.db_schema);
+    // a project's branches go with it
+    const branches = await db`SELECT id, db_schema FROM control_plane.projects WHERE parent_project_id = ${id}`;
+    for (const b of [...branches, { id, db_schema: p.db_schema }]) {
+      await db`UPDATE control_plane.projects SET status = 'deleting' WHERE id = ${b['id'] as string}`;
+      await invalidateProjectCache(b['id'] as string);
+      await closeProjectDb(b['id'] as string);
+      await dropProjectSchema(b['db_schema'] as string);
+      if (b['id'] !== id) await db`DELETE FROM control_plane.projects WHERE id = ${b['id'] as string}`;
+    }
     await audit(request, 'project.deleted', { type: 'project', id, orgId: p.organization_id }, { slug: p.slug });
     await db`DELETE FROM control_plane.projects WHERE id = ${id}`;
     return reply.send({ success: true });

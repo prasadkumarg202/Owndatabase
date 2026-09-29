@@ -107,6 +107,49 @@ jobs:
         run: odb db push \${{ secrets.ODB_PROJECT_ID }}
 `;
 
+const GITHUB_PREVIEW_WORKFLOW = `# A database branch per pull request: created (from main's schema) and migrated
+# when the PR opens or changes, merged into the main project when the PR is
+# merged, deleted when it closes. Same secrets as odb-migrations.yml.
+name: Database preview branches
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths: ['odb/migrations/**']
+jobs:
+  branch:
+    runs-on: ubuntu-latest
+    env:
+      ODB_URL: \${{ secrets.ODB_URL }}
+      ODB_TOKEN: \${{ secrets.ODB_TOKEN }}
+      PROJECT: \${{ secrets.ODB_PROJECT_ID }}
+      BRANCH: pr-\${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: \${{ vars.ODB_CLI_REPO || 'prasadkumarg202/Owndatabase' }}
+          token: \${{ secrets.ODB_CLI_REPO_TOKEN || github.token }}
+          path: .odb
+          sparse-checkout: platform/cli
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: cd .odb/platform/cli && npm ci && npm run build && npm link
+      - name: Find the branch
+        run: echo "BRANCH_ID=$(odb --json branches list $PROJECT | node -e "const b=JSON.parse(require('fs').readFileSync(0,'utf8')).find(x=>x.branch_name===process.env.BRANCH);console.log(b?b.id:'')")" >> $GITHUB_ENV
+      - name: Create and migrate the branch
+        if: github.event.action != 'closed'
+        run: |
+          [ -n "$BRANCH_ID" ] || echo "BRANCH_ID=$(odb --json branches create $PROJECT $BRANCH | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).id)")" >> $GITHUB_ENV
+      - if: github.event.action != 'closed'
+        run: odb db push $BRANCH_ID
+      - name: Merge into the main project
+        if: github.event.action == 'closed' && github.event.pull_request.merged && env.BRANCH_ID != ''
+        run: odb branches merge $PROJECT $BRANCH_ID
+      - name: Delete the branch
+        if: github.event.action == 'closed' && env.BRANCH_ID != ''
+        run: odb branches delete $PROJECT $BRANCH_ID
+`;
+
 export function registerMigrationCommands(program: Command, run: (fn: (...a: any[]) => Promise<void>) => (...a: any[]) => Promise<void>) {
   const json = () => !!program.opts()['json'];
 
@@ -117,10 +160,13 @@ export function registerMigrationCommands(program: Command, run: (fn: (...a: any
       if (!existsSync(join('odb', 'seed.sql'))) writeFileSync(join('odb', 'seed.sql'), '-- Rows inserted by `odb db reset` after the migrations (development data).\n');
       console.log(green('✓ odb/migrations and odb/seed.sql ready'));
       if (o.github) {
-        const f = join('.github', 'workflows', 'odb-migrations.yml');
-        mkdirSync(dirname(f), { recursive: true });
-        if (existsSync(f)) console.log(yellow(`${f} exists, left unchanged`));
-        else { writeFileSync(f, GITHUB_WORKFLOW); console.log(green(`✓ ${f}`) + dim(' — add the ODB_URL, ODB_TOKEN and ODB_PROJECT_ID secrets')); }
+        for (const [name, body] of [['odb-migrations.yml', GITHUB_WORKFLOW], ['odb-preview-branches.yml', GITHUB_PREVIEW_WORKFLOW]] as const) {
+          const f = join('.github', 'workflows', name);
+          mkdirSync(dirname(f), { recursive: true });
+          if (existsSync(f)) console.log(yellow(`${f} exists, left unchanged`));
+          else { writeFileSync(f, body); console.log(green(`✓ ${f}`)); }
+        }
+        console.log(dim('Add the ODB_URL, ODB_TOKEN and ODB_PROJECT_ID repository secrets.'));
       }
     }));
 

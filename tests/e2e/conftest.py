@@ -20,7 +20,7 @@ def browser_context_args(browser_context_args):
 ROUTES = ["/login", "/dashboard", "/projects", "/organizations", "/status", "/invite/warmup"] + [
     f"/projects/00000000-0000-0000-0000-000000000000{p}" for p in
     ["", "/database", "/table", "/sql", "/auth", "/storage", "/realtime", "/functions", "/queues", "/cron",
-     "/webhooks", "/backups", "/logs", "/reports", "/settings"]]
+     "/webhooks", "/branches", "/backups", "/logs", "/reports", "/settings"]]
 
 
 @pytest.fixture(scope="session", autouse=True)

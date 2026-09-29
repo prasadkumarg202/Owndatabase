@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, FolderOpen, Database, Code2, Users, HardDrive, Radio, Zap, Clock, ListOrdered,
-  Archive, ScrollText, Activity, Settings, BarChart2, ExternalLink, Home, Building2, Webhook,
+  Archive, ScrollText, Activity, Settings, BarChart2, ExternalLink, Home, Building2, Webhook, GitBranch,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -21,6 +21,7 @@ export function Sidebar() {
         { label: 'Database', items: [
           { label: 'Tables', href: p('/database'), icon: Database },
           { label: 'SQL Editor', href: p('/sql'), icon: Code2 },
+          { label: 'Branches', href: p('/branches'), icon: GitBranch },
         ] },
         { label: 'Services', items: [
           { label: 'Authentication', href: p('/auth'), icon: Users },

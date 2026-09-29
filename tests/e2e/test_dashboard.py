@@ -259,6 +259,17 @@ def test_10b_database_webhooks(page: Page, dashboard_url, ui_user, state):
     shot(page, "10b-webhooks")
 
 
+def test_10c_branches(page: Page, dashboard_url, ui_user, state):
+    login(page, dashboard_url, ui_user)
+    page.goto(f"{state['project_url']}/branches")
+    page.get_by_label("Branch name").fill("preview")
+    page.get_by_test_id("create-branch").click()
+    expect(page.get_by_test_id("branch-anon-key")).to_contain_text("odb_anon_", timeout=60_000)
+    page.keyboard.press("Escape")
+    expect(page.get_by_test_id("branches-table")).to_contain_text("preview")
+    shot(page, "10c-branches")
+
+
 def test_11_backups(page: Page, dashboard_url, ui_user, state):
     login(page, dashboard_url, ui_user)
     page.goto(f"{state['project_url']}/backups")

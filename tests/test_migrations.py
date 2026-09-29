@@ -66,6 +66,16 @@ def test_migrations_run_as_the_project_owner_not_the_platform(proj):
 def test_transaction_control_rejected(proj):
     assert apply(proj, "20260301000000", "begin; create table t (id int); commit;").status_code == 400
     assert apply(proj, "20260301000000", "create index concurrently i on t (id);").status_code == 400
+    # BEGIN inside a PL/pgSQL body (or a string) is not transaction control
+    r = apply(proj, "20260301000001", """
+        create function touch() returns trigger language plpgsql as $$
+        begin
+          new.updated_at := now();
+          return new;
+        end $$;
+        create function note() returns text language sql as $body$ select 'commit;' $body$;
+        select 'begin';""")
+    assert r.status_code == 201, r.text
 
 
 def test_repair_remote_schema_and_reset(proj):

@@ -33,18 +33,23 @@ class DryRun extends Error {}
 // Transaction control would break "applied and recorded together"
 const TXN_CONTROL = /^\s*(BEGIN|COMMIT|ROLLBACK|END|START\s+TRANSACTION|SAVEPOINT|RELEASE)\b|\bCONCURRENTLY\b/im;
 
+/** SQL outside function bodies, strings and comments (PL/pgSQL bodies legitimately contain BEGIN). */
 function stripComments(sql: string) {
-  return sql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  return sql
+    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?\$\1\$/g, "''")
+    .replace(/'(?:[^']|'')*'/g, "''")
+    .replace(/--[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 async function schemaChanged(projectId: string) {
   await redis.publish('odb:schema-changed', JSON.stringify({ projectId })).catch(() => {});
 }
 
-function pgDump(schema: string): Promise<string> {
+export function pgDump(schema: string, mode: 'schema' | 'data' = 'schema'): Promise<string> {
   const u = new URL(config.databaseUrl);
   return new Promise((resolve, reject) => {
-    const p = spawn('pg_dump', ['--schema-only', '--no-owner', '--no-acl', '--no-comments', '--schema', schema, '--dbname', u.pathname.slice(1)], {
+    const p = spawn('pg_dump', [mode === 'schema' ? '--schema-only' : '--data-only', '--no-owner', '--no-acl', '--no-comments', '--schema', schema, '--dbname', u.pathname.slice(1)], {
       env: { PATH: process.env['PATH'] ?? '/usr/bin:/bin', PGHOST: u.hostname, PGPORT: u.port || '5432', PGUSER: decodeURIComponent(u.username), PGPASSWORD: decodeURIComponent(u.password) },
     });
     let out = '', err = '';
@@ -124,7 +129,7 @@ export const migrationRoutes: FastifyPluginAsync = async (server: FastifyInstanc
       });
     }
     const ms = Date.now() - started;
-    await db`UPDATE control_plane.project_migrations SET applied_by = ${userId(request)}, execution_ms = ${ms}
+    await db`UPDATE control_plane.project_migrations SET applied_by = ${userId(request)}, execution_ms = ${ms}, sql = ${m.sql}
              WHERE project_id = ${p.id} AND version = ${m.version}`;
     await schemaChanged(p.id);
     await audit(request, 'migration.applied', { type: 'migration', id: m.version, projectId: p.id }, { name: m.name, checksum, execution_ms: ms });
@@ -142,9 +147,9 @@ export const migrationRoutes: FastifyPluginAsync = async (server: FastifyInstanc
     const r = input.data;
     if (r.status === 'applied') {
       await db`
-        INSERT INTO control_plane.project_migrations (project_id, version, name, checksum, applied_by, source)
-        VALUES (${p.id}, ${r.version}, ${r.name}, ${sha256(r.sql ?? '')}, ${userId(request)}, ${r.source})
-        ON CONFLICT (project_id, version) DO UPDATE SET name = EXCLUDED.name, checksum = EXCLUDED.checksum, source = EXCLUDED.source`;
+        INSERT INTO control_plane.project_migrations (project_id, version, name, checksum, applied_by, source, sql)
+        VALUES (${p.id}, ${r.version}, ${r.name}, ${sha256(r.sql ?? '')}, ${userId(request)}, ${r.source}, ${r.sql ?? null})
+        ON CONFLICT (project_id, version) DO UPDATE SET name = EXCLUDED.name, checksum = EXCLUDED.checksum, source = EXCLUDED.source, sql = EXCLUDED.sql`;
     } else {
       await db`DELETE FROM control_plane.project_migrations WHERE project_id = ${p.id} AND version = ${r.version}`;
     }

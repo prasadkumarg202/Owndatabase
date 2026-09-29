@@ -273,7 +273,7 @@
 - [x] Postgres-native queues (odb_queue: send/read/archive/pop with visibility timeouts; RPC + dashboard) — [queues.md](queues.md)
 - [x] OpenTelemetry traces (all services → Tempo, `traceparent` continued, `x-trace-id` on responses) — [tracing.md](tracing.md)
 - [x] Custom domains (DNS TXT verification, on-demand TLS, Supabase-style paths on the domain) — [custom-domains.md](custom-domains.md)
-- [ ] Branching
+- [x] Branching (schema ± data copies with own keys, merge migrations back, preview branch per PR) — [branches.md](branches.md)
 - [ ] JavaScript SDK
 - [ ] GraphQL
 - [ ] Billing
