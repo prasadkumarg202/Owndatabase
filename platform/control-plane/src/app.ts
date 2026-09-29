@@ -22,6 +22,7 @@ import { invitationRoutes, orgInvitationRoutes } from './routes/invitations.js';
 import { dbWebhookRoutes } from './routes/db-webhooks.js';
 import { limitRoutes } from './routes/limits.js';
 import { migrationRoutes } from './routes/migrations.js';
+import { pgQueueRoutes } from './routes/pg-queues.js';
 import { tokenRoutes, authenticatePat } from './routes/tokens.js';
 import { projectRoutes } from './routes/projects.js';
 import { apiKeyRoutes } from './routes/api-keys.js';
@@ -112,6 +113,7 @@ export async function buildApp() {
   await server.register(dbWebhookRoutes, { prefix: '/api/projects' });
   await server.register(limitRoutes, { prefix: '/api/projects' });
   await server.register(migrationRoutes, { prefix: '/api/projects' });
+  await server.register(pgQueueRoutes, { prefix: '/api/projects' });
   await server.register(tokenRoutes, { prefix: '/api/auth/tokens' });
   await server.register(observabilityRoutes, { prefix: '/api' });
   await server.register(apiKeyRoutes, { prefix: '/api/keys' });

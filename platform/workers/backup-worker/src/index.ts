@@ -132,7 +132,8 @@ async function backupRun(job: Job) {
   try {
     await run('pg_dump', ['--format=custom', '--no-owner', '--no-acl', '--schema', schema, '--file', tmp]);
     const listing = await run('pg_restore', ['--list', tmp]);
-    const tables = (listing.stdout.match(/ TABLE (?!DATA)/g) ?? []).length;
+    // only real table entries ("<id>; <oid> <oid> TABLE schema name"), not TABLE DATA or COMMENT … TABLE
+    const tables = (listing.stdout.match(/^\d+; \d+ \d+ TABLE (?!DATA )/gm) ?? []).length;
     const encrypted = await encryptFile(tmp, finalPath);
     const size = (await stat(finalPath)).size;
     const checksum = await sha256File(finalPath);

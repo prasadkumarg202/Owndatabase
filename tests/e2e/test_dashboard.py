@@ -230,6 +230,18 @@ def test_10_queues_and_cron(page: Page, dashboard_url, ui_user, state):
     shot(page, "09-cron")
 
 
+def test_10a_postgres_queues(page: Page, dashboard_url, ui_user, state):
+    login(page, dashboard_url, ui_user)
+    page.goto(f"{state['project_url']}/queues")
+    page.get_by_role("tab", name="Postgres queues").click()
+    page.get_by_label("New queue").fill("orders")
+    page.get_by_test_id("create-pg-queue").click()
+    expect(page.get_by_test_id("pg-queues-table")).to_contain_text("orders", timeout=10_000)
+    page.get_by_test_id("send-pg-message").click()
+    expect(page.get_by_test_id("pg-messages-table")).to_contain_text('"hello":"world"', timeout=10_000)
+    shot(page, "10a-pg-queues")
+
+
 def test_10b_database_webhooks(page: Page, dashboard_url, ui_user, state):
     login(page, dashboard_url, ui_user)
     page.goto(f"{state['project_url']}/webhooks")

@@ -270,7 +270,7 @@
 - [x] API key rotation (grace period, rotate-all for leaks; dashboard + CLI)
 - [x] Per-project migrations + CLI `db push/pull/reset`, `migration new/list/repair`, personal access tokens, GitHub Actions workflow — [migrations.md](migrations.md)
 - [x] Per-key rate limits and IP allowlists (all data-plane services; dashboard + API)
-- [ ] Postgres-native queues
+- [x] Postgres-native queues (odb_queue: send/read/archive/pop with visibility timeouts; RPC + dashboard) — [queues.md](queues.md)
 - [ ] OpenTelemetry traces
 - [ ] Custom domains
 - [ ] Branching
