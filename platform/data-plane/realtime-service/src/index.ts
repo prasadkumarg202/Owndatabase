@@ -257,7 +257,7 @@ server.get('/metrics', async (_req, reply) => reply.header('Content-Type', regis
 const statsHandler = async (req: any, reply: any) => {
   const { projectId } = req.params as { projectId: string };
   try {
-    const a = await platform.authenticate(projectId, req.headers as any, req.query as any, { allowPlatformUser: true });
+    const a = await platform.authenticate(projectId, req.headers as any, req.query as any, { allowPlatformUser: true, ip: req.ip });
     if (a.role !== 'service_role') return reply.status(403).send({ error: 'Forbidden' });
   } catch (err) {
     if (err instanceof AuthError) return reply.status(err.statusCode).send({ error: 'Unauthorized', message: err.message });
@@ -275,7 +275,7 @@ server.get('/realtime/v1/:projectId/stats', statsHandler);
 const broadcastHandler = async (req: any, reply: any) => {
   const { projectId } = req.params as { projectId: string };
   try {
-    const a = await platform.authenticate(projectId, req.headers as any, req.query as any, { allowPlatformUser: true });
+    const a = await platform.authenticate(projectId, req.headers as any, req.query as any, { allowPlatformUser: true, ip: req.ip });
     if (a.role !== 'service_role') return reply.status(403).send({ error: 'Forbidden', message: 'Server-side broadcast needs a service_role key' });
   } catch (err) {
     if (err instanceof AuthError) return reply.status(err.statusCode).send({ error: 'Unauthorized', message: err.message });
@@ -297,7 +297,7 @@ server.get('/realtime', { websocket: true }, async (conn: any, request) => {
   try {
     const headers = { ...request.headers, ...(q['token'] ? { authorization: `Bearer ${q['token']}` } : {}) };
     // Dashboard members may connect with their control-plane token (acts as service_role)
-    auth = await platform.authenticate(projectId, headers as any, q, { allowPlatformUser: true });
+    auth = await platform.authenticate(projectId, headers as any, q, { allowPlatformUser: true, ip: request.ip });
   } catch (err) {
     const msg = err instanceof AuthError ? err.message : 'Authentication failed';
     socket.send(JSON.stringify({ type: 'error', code: 'auth_failed', message: msg }));

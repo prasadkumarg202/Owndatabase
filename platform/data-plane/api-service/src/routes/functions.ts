@@ -101,7 +101,7 @@ export default async function functionRoutes(server: FastifyInstance) {
       }
     } else {
       try {
-        auth = await platform.authenticate(projectId, req.headers as any, req.query as any);
+        auth = await platform.authenticate(projectId, req.headers as any, req.query as any, { ip: req.ip });
       } catch (err) {
         if (err instanceof AuthError) return reply.status(err.statusCode).send({ error: 'Unauthorized', message: err.message });
         throw err;

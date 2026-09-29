@@ -18,7 +18,7 @@ declare module 'fastify' {
 async function resolve(req: FastifyRequest, reply: FastifyReply, needUser: boolean) {
   const { projectId } = req.params as { projectId: string };
   try {
-    req.ctx = await platform.authenticate(projectId, req.headers as any, req.query as any);
+    req.ctx = await platform.authenticate(projectId, req.headers as any, req.query as any, { ip: req.ip });
   } catch (err) {
     if (err instanceof AuthError) return reply.status(err.statusCode).send({ error: 'Unauthorized', message: err.message });
     throw err;

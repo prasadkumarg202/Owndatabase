@@ -31,6 +31,19 @@ export async function rateLimitMiddleware(req: FastifyRequest, reply: FastifyRep
     reply.header('X-RateLimit-Remaining', Math.max(0, limit - n));
     if (n > limit) return reply.status(429).header('Retry-After', 60).send({ error: 'Too Many Requests', message: `Rate limit of ${limit} requests/minute exceeded` });
 
+    // Per-key cap across every client using the key (set per API key)
+    const keyLimit = auth.key.rate_limit_per_minute;
+    if (keyLimit) {
+      const kk = `api-rl-key:${auth.key.id}:${Math.floor(Date.now() / 60000)}`;
+      const kn = await redis.incr(kk);
+      if (kn === 1) await redis.expire(kk, 61);
+      reply.header('X-RateLimit-Key-Limit', keyLimit);
+      reply.header('X-RateLimit-Key-Remaining', Math.max(0, keyLimit - kn));
+      if (kn > keyLimit) {
+        return reply.status(429).header('Retry-After', 60).send({ error: 'Too Many Requests', message: `This API key is limited to ${keyLimit} requests/minute` });
+      }
+    }
+
     const usageKey = `odb:usage:${auth.project.id}:${utcDay()}`;
     const daily = limitOf(auth.project, 'api_requests_per_day');
     if (daily === null) {

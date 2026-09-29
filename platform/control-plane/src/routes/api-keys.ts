@@ -3,23 +3,41 @@
  *
  * GET    /api/keys?project_id=...     — List API keys for a project (never the key itself)
  * POST   /api/keys                    — Create a key (full key returned once)
+ * PATCH  /api/keys/:id                — { name?, rate_limit_per_minute?, allowed_ips? }
  * DELETE /api/keys/:id                — Revoke a key
  * POST   /api/keys/:id/rotate         — Replace a key; the old one keeps working for a grace period
  * POST   /api/keys/rotate             — Rotate every active key of a project (e.g. after a leak)
  */
 
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import { isIP } from 'node:net';
 import { z } from 'zod';
 import { db } from '../lib/db.js';
 import { redis } from '../lib/redis.js';
 import { audit, requireProject, WRITE_ROLES } from '../lib/access.js';
 import { generateApiKey } from '../lib/provision.js';
 
+// IPv4 / IPv6 address or CIDR (checked again by net.BlockList in the data plane)
+const ipEntry = z.string().trim().max(64).refine((v) => {
+  const [addr, bits, extra] = v.split('/');
+  if (extra !== undefined || !addr) return false;
+  const v4 = isIP(addr) === 4, v6 = isIP(addr) === 6;
+  if (!v4 && !v6) return false;
+  if (bits === undefined) return true;
+  const n = Number(bits);
+  return /^\d+$/.test(bits) && n >= 0 && n <= (v4 ? 32 : 128);
+}, 'allowed_ips entries must be IP addresses or CIDR ranges, e.g. 203.0.113.7 or 10.0.0.0/8');
+const limitFields = {
+  rate_limit_per_minute: z.number().int().min(1).max(1_000_000).nullable().optional(),
+  allowed_ips: z.array(ipEntry).max(100).optional(),
+};
+
 const createKeySchema = z.object({
   project_id: z.string().uuid(),
   name: z.string().min(1).max(255).trim(),
   type: z.enum(['anon', 'authenticated', 'service_role', 'admin']),
   expires_at: z.string().datetime({ offset: true }).optional(),
+  ...limitFields,
 });
 
 export const apiKeyRoutes: FastifyPluginAsync = async (server: FastifyInstance) => {
@@ -32,6 +50,7 @@ export const apiKeyRoutes: FastifyPluginAsync = async (server: FastifyInstance) 
     if (!p) return;
     const keys = await db`
       SELECT id, name, key_prefix, type, is_active, expires_at, last_used_at, created_at, rotated_from, rotated_at,
+             rate_limit_per_minute, allowed_ips,
              (is_active AND (expires_at IS NULL OR expires_at > NOW())) AS usable
       FROM control_plane.api_keys WHERE project_id = ${p.id}
       ORDER BY is_active DESC, created_at DESC`;
@@ -41,7 +60,7 @@ export const apiKeyRoutes: FastifyPluginAsync = async (server: FastifyInstance) 
   server.post('/', { ...auth, schema: { ...tags, summary: 'Create a new API key' } }, async (request, reply) => {
     const input = createKeySchema.safeParse(request.body);
     if (!input.success) return reply.status(400).send({ error: 'Validation Error', message: input.error.errors[0]?.message ?? 'Invalid input' });
-    const { project_id, name, type, expires_at } = input.data;
+    const { project_id, name, type, expires_at, rate_limit_per_minute, allowed_ips } = input.data;
 
     const p = await requireProject(request, reply, project_id, WRITE_ROLES);
     if (!p) return;
@@ -51,9 +70,10 @@ export const apiKeyRoutes: FastifyPluginAsync = async (server: FastifyInstance) 
 
     const { key, hash, prefix } = generateApiKey(type);
     const [created] = await db`
-      INSERT INTO control_plane.api_keys (project_id, name, key_hash, key_prefix, type, expires_at, created_by)
-      VALUES (${project_id}, ${name}, ${hash}, ${prefix}, ${type}, ${expires_at ?? null}, ${(request.user as any).sub})
-      RETURNING id, name, key_prefix, type, is_active, expires_at, created_at`;
+      INSERT INTO control_plane.api_keys (project_id, name, key_hash, key_prefix, type, expires_at, created_by, rate_limit_per_minute, allowed_ips)
+      VALUES (${project_id}, ${name}, ${hash}, ${prefix}, ${type}, ${expires_at ?? null}, ${(request.user as any).sub},
+              ${rate_limit_per_minute ?? null}, ${db.json(allowed_ips ?? [])})
+      RETURNING id, name, key_prefix, type, is_active, expires_at, created_at, rate_limit_per_minute, allowed_ips`;
     await audit(request, 'api_key.created', { type: 'api_key', id: created!['id'] as string, projectId: project_id }, { name, type });
     return reply.status(201).send({ ...created, key, warning: 'Store this key securely. It will not be shown again.' });
   });
@@ -67,9 +87,10 @@ export const apiKeyRoutes: FastifyPluginAsync = async (server: FastifyInstance) 
   async function rotateOne(sql: any, old: Record<string, any>, grace: number, uid: string) {
     const { key, hash, prefix } = generateApiKey(old['type'] as any);
     const [created] = await sql`
-      INSERT INTO control_plane.api_keys (project_id, name, key_hash, key_prefix, type, created_by, rotated_from, metadata)
-      VALUES (${old['project_id']}, ${old['name']}, ${hash}, ${prefix}, ${old['type']}, ${uid}, ${old['id']}, ${sql.json(old['metadata'] ?? {})})
-      RETURNING id, name, key_prefix, type, is_active, expires_at, created_at, rotated_from`;
+      INSERT INTO control_plane.api_keys (project_id, name, key_hash, key_prefix, type, created_by, rotated_from, metadata, rate_limit_per_minute, allowed_ips)
+      VALUES (${old['project_id']}, ${old['name']}, ${hash}, ${prefix}, ${old['type']}, ${uid}, ${old['id']}, ${sql.json(old['metadata'] ?? {})},
+              ${old['rate_limit_per_minute'] ?? null}, ${sql.json(old['allowed_ips'] ?? [])})
+      RETURNING id, name, key_prefix, type, is_active, expires_at, created_at, rotated_from, rate_limit_per_minute, allowed_ips`;
     const [prev] = await sql`
       UPDATE control_plane.api_keys SET
         rotated_at = NOW(), updated_at = NOW(),
@@ -129,6 +150,32 @@ export const apiKeyRoutes: FastifyPluginAsync = async (server: FastifyInstance) 
     for (const k of keys) await redis.publish('odb:apikey-revoked', k['key_hash'] as string).catch(() => {});
     await audit(request, 'api_key.rotated_all', { type: 'project', id: p.id, projectId: p.id }, { count: rotated.length, grace_period_seconds: grace });
     return reply.status(201).send({ data: rotated, warning: 'Store these keys securely. They will not be shown again.' });
+  });
+
+  server.patch('/:id', { ...auth, schema: { ...tags, summary: 'Update a key: name, per-key rate limit, IP allowlist' } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return reply.status(404).send({ error: 'Not Found', message: 'API key not found' });
+    const input = z.object({ name: z.string().min(1).max(255).trim().optional(), ...limitFields }).strict().safeParse(request.body);
+    if (!input.success) return reply.status(400).send({ error: 'Validation Error', message: input.error.errors[0]?.message ?? 'Invalid input' });
+    const [key] = await db`SELECT * FROM control_plane.api_keys WHERE id = ${id}`;
+    if (!key) return reply.status(404).send({ error: 'Not Found', message: 'API key not found' });
+    const p = await requireProject(request, reply, key['project_id'] as string, WRITE_ROLES);
+    if (!p) return;
+    if (['service_role', 'admin'].includes(key['type'] as string) && !['owner', 'admin'].includes(p.role)) {
+      return reply.status(403).send({ error: 'Forbidden', message: 'Only owners and admins can change service_role or admin keys' });
+    }
+    const b = input.data;
+    const [row] = await db`
+      UPDATE control_plane.api_keys SET
+        name = ${b.name ?? key['name']},
+        rate_limit_per_minute = ${b.rate_limit_per_minute === undefined ? key['rate_limit_per_minute'] : b.rate_limit_per_minute},
+        allowed_ips = ${db.json((b.allowed_ips ?? key['allowed_ips'] ?? []) as any)},
+        updated_at = NOW()
+      WHERE id = ${id}
+      RETURNING id, name, key_prefix, type, is_active, expires_at, rate_limit_per_minute, allowed_ips`;
+    await redis.publish('odb:apikey-revoked', key['key_hash'] as string).catch(() => {});  // refresh cached settings
+    await audit(request, 'api_key.updated', { type: 'api_key', id, projectId: p.id }, { fields: Object.keys(b) });
+    return reply.send(row);
   });
 
   server.delete('/:id', { ...auth, schema: { ...tags, summary: 'Revoke an API key' } }, async (request, reply) => {

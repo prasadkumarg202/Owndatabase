@@ -110,7 +110,7 @@ async function getBucket(projectId: string, name: string): Promise<Bucket> {
 async function ctx(req: FastifyRequest): Promise<RequestAuth> {
   const { projectId } = req.params as { projectId: string };
   try {
-    return await platform.authenticate(projectId, req.headers as any, req.query as any, { allowPlatformUser: true });
+    return await platform.authenticate(projectId, req.headers as any, req.query as any, { allowPlatformUser: true, ip: req.ip });
   } catch (err) {
     if (err instanceof AuthError) throw new HttpError(err.statusCode, err.message);
     throw err;

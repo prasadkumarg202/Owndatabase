@@ -269,7 +269,7 @@
 - [x] Usage limits per project (requests, functions, storage, users, realtime, database size → read-only) — [limits.md](limits.md)
 - [x] API key rotation (grace period, rotate-all for leaks; dashboard + CLI)
 - [x] Per-project migrations + CLI `db push/pull/reset`, `migration new/list/repair`, personal access tokens, GitHub Actions workflow — [migrations.md](migrations.md)
-- [ ] Per-key rate limits
+- [x] Per-key rate limits and IP allowlists (all data-plane services; dashboard + API)
 - [ ] Postgres-native queues
 - [ ] OpenTelemetry traces
 - [ ] Custom domains

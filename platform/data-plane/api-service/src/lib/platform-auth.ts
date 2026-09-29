@@ -11,6 +11,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import net from 'node:net';
 import { jwtVerify, SignJWT } from 'jose';
 import type postgres from 'postgres';
 import type { Redis } from 'ioredis';
@@ -29,6 +30,31 @@ export interface KeyInfo {
   id: string;
   project_id: string;
   type: 'anon' | 'authenticated' | 'service_role' | 'admin';
+  /** requests per minute across every client of this key (null = the role default only) */
+  rate_limit_per_minute?: number | null;
+  /** IPs / CIDRs allowed to use this key (empty = any) */
+  allowed_ips?: string[];
+  allow?: net.BlockList | null;
+}
+
+/** Builds a matcher for IP / CIDR entries (IPv4 and IPv6); invalid entries are ignored. */
+export function ipMatcher(entries: string[] | null | undefined): net.BlockList | null {
+  if (!entries?.length) return null;
+  const list = new net.BlockList();
+  for (const raw of entries) {
+    const [addr, bits] = String(raw).trim().split('/');
+    const type = net.isIPv6(addr ?? '') ? 'ipv6' : net.isIPv4(addr ?? '') ? 'ipv4' : null;
+    if (!type || !addr) continue;
+    if (bits === undefined) list.addAddress(addr, type);
+    else list.addSubnet(addr, Number(bits), type);
+  }
+  return list;
+}
+
+export function ipAllowed(list: net.BlockList, ip: string | undefined): boolean {
+  if (!ip) return false;
+  const v4 = ip.startsWith('::ffff:') && net.isIPv4(ip.slice(7)) ? ip.slice(7) : ip;
+  return net.isIPv4(v4) ? list.check(v4, 'ipv4') : net.isIPv6(v4) ? list.check(v4, 'ipv6') : false;
 }
 
 export interface RequestAuth {
@@ -83,8 +109,12 @@ export class PlatformAuth {
     const [row] = await this.db`
       UPDATE control_plane.api_keys SET last_used_at = NOW()
       WHERE key_hash = ${hash} AND is_active AND (expires_at IS NULL OR expires_at > NOW())
-      RETURNING id, project_id, type::text AS type, expires_at`;
-    const value = row ? { id: row['id'], project_id: row['project_id'], type: row['type'] } as KeyInfo : null;
+      RETURNING id, project_id, type::text AS type, expires_at, rate_limit_per_minute, allowed_ips`;
+    const ips = Array.isArray(row?.['allowed_ips']) ? (row!['allowed_ips'] as string[]) : [];
+    const value = row ? {
+      id: row['id'], project_id: row['project_id'], type: row['type'],
+      rate_limit_per_minute: row['rate_limit_per_minute'] ?? null, allowed_ips: ips, allow: ipMatcher(ips),
+    } as KeyInfo : null;
     // never cache a key past its expiry (rotated keys expire after their grace period)
     const expiresAt = row?.['expires_at'] ? new Date(row['expires_at'] as string).getTime() : Infinity;
     this.keyCache.set(hash, { value, exp: Math.min(Date.now() + TTL_MS, expiresAt) });
@@ -159,7 +189,7 @@ export class PlatformAuth {
     }
   }
 
-  async authenticate(projectId: string, headers: Record<string, any>, query: Record<string, any> = {}, opts: { requireKey?: boolean; allowPlatformUser?: boolean } = {}): Promise<RequestAuth> {
+  async authenticate(projectId: string, headers: Record<string, any>, query: Record<string, any> = {}, opts: { requireKey?: boolean; allowPlatformUser?: boolean; ip?: string } = {}): Promise<RequestAuth> {
     const project = await this.getProject(projectId);
     if (!project || project.status === 'deleting') throw new AuthError(404, 'Project not found');
     if (project.status === 'paused') throw new AuthError(503, 'Project is paused');
@@ -176,6 +206,8 @@ export class PlatformAuth {
     if (rawKey) {
       key = await this.getKey(rawKey);
       if (!key || key.project_id !== projectId) throw new AuthError(401, 'Invalid API key');
+      // fail closed: a key with an allowlist needs the caller's IP
+      if (key.allow && !ipAllowed(key.allow, opts.ip)) throw new AuthError(403, `This API key may not be used from ${opts.ip ?? 'an unknown address'}`);
     } else if (opts.requireKey !== false) {
       throw new AuthError(401, 'Missing API key. Send it in the `apikey` header.');
     }

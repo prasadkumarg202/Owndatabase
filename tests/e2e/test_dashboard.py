@@ -281,6 +281,13 @@ def test_12_logs_reports_settings(page: Page, dashboard_url, ui_user, state):
     expect(page.get_by_test_id("new-key-value")).to_contain_text("odb_anon_", timeout=10_000)
     page.keyboard.press("Escape")
     expect(page.get_by_test_id("keys-table")).to_contain_text("rotating")
+    # per-key limits
+    page.get_by_role("button", name="Limits for Mobile app").last.click()
+    page.get_by_label("Requests per minute (all clients of this key)").fill("120")
+    page.get_by_label("Allowed IPs / CIDR ranges (one per line)").fill("0.0.0.0/0\n::/0")
+    page.get_by_test_id("save-key-limits").click()
+    expect(page.get_by_test_id("keys-table")).to_contain_text("120/min", timeout=10_000)
+    expect(page.get_by_test_id("keys-table")).to_contain_text("2 IP rules")
     page.get_by_role("tab", name="Secrets").click()
     page.get_by_label("Name").fill("PAYMENT_KEY")
     page.get_by_label("Value").fill("sk_test_123")

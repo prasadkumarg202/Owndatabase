@@ -127,18 +127,26 @@ Three key types with separate permissions:
   (0 = revoke now) or all of a project's keys at once with `POST /api/keys/rotate` (dashboard: Settings →
   API keys → Rotate; CLI: `odb keys rotate` / `odb keys rotate-all`). A rotated key stops working exactly
   when its grace period ends — cached lookups never outlive a key's expiry.
+- Per key (dashboard: Settings → API keys → Limits, or `PATCH /api/keys/:id`):
+  - `allowed_ips`: IPs / CIDR ranges (IPv4 and IPv6) allowed to use the key; any other
+    address gets 403 from every data-plane service (REST, auth, storage, realtime, functions).
+  - `rate_limit_per_minute`: a cap across **all** clients of the key (429 with `Retry-After`,
+    `X-RateLimit-Key-Limit` / `-Remaining`), on top of the per-client limits below.
+  Both carry over when the key is rotated.
 
 ### Rate Limiting
 
-| Endpoint | Limit |
+| Endpoint | Limit (defaults) |
 |---|---|
-| Auth login | 5 req / 15 min / IP |
-| Auth signup | 10 req / hour / IP |
-| OTP | 5 attempts / 10 min |
-| API (anon) | 100 req / min / key |
-| API (authenticated) | 500 req / min / key |
-| API (service_role) | 2000 req / min / key |
-| Storage upload | 10 req / min / user |
+| Auth login | account locked after `max_failed_logins` (5) failures for `lockout_minutes` (15), per project |
+| Auth signup | 30 / hour / IP |
+| Email OTP / magic link | 5 / 15 min / address; 5 guesses per code |
+| SMS OTP | 5 / hour / number, 20 / hour / IP |
+| REST + RPC, anon | 600 / min per key + client IP (`RATE_LIMIT_ANON`) |
+| REST + RPC, signed-in user | 1200 / min per user (`RATE_LIMIT_AUTHENTICATED`) |
+| REST + RPC, service_role | 6000 / min per key + client IP (`RATE_LIMIT_SERVICE`) |
+| Per API key (optional) | `rate_limit_per_minute` across all clients |
+| Per project (optional) | daily quotas — see [limits.md](limits.md) |
 
 ### CORS
 

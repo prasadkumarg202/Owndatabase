@@ -67,6 +67,16 @@ function Keys({ id }: { id: string }) {
     mutationFn: () => api.post(`/keys/${rotating.id}/rotate`, { grace_period_seconds: Number(grace) }),
     onSuccess: (r) => { setRotating(null); setCreated(r); qc.invalidateQueries({ queryKey: ['keys', id] }); },
   });
+  const [editing, setEditing] = useState<any>(null);
+  const [limits, setLimits] = useState({ rate: '', ips: '' });
+  const openEdit = (k: any) => { setEditing(k); setLimits({ rate: k.rate_limit_per_minute ? String(k.rate_limit_per_minute) : '', ips: (k.allowed_ips ?? []).join('\n') }); };
+  const saveLimits = useMutation({
+    mutationFn: () => api.patch(`/keys/${editing.id}`, {
+      rate_limit_per_minute: limits.rate.trim() ? Number(limits.rate) : null,
+      allowed_ips: limits.ips.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean),
+    }),
+    onSuccess: () => { toast.success('Key limits saved'); setEditing(null); qc.invalidateQueries({ queryKey: ['keys', id] }); },
+  });
   const status = (k: any) => !k.is_active ? <Badge tone="red">revoked</Badge>
     : !k.usable ? <Badge tone="red">expired</Badge>
     : k.rotated_at ? <Badge tone="yellow">rotating — until {formatDate(k.expires_at)}</Badge>
@@ -78,9 +88,12 @@ function Keys({ id }: { id: string }) {
         { key: 'name', label: 'Name' }, { key: 'type', label: 'Type', render: (k: any) => <Badge tone={k.type === 'anon' ? 'blue' : 'purple'}>{k.type}</Badge> },
         { key: 'key_prefix', label: 'Key', render: (k: any) => <code className="text-xs">{k.key_prefix}…</code> },
         { key: 'is_active', label: 'Status', render: status },
+        { key: 'limits', label: 'Limits', render: (k: any) => <span className="text-xs text-gray-600">
+          {k.rate_limit_per_minute ? `${k.rate_limit_per_minute}/min` : 'default rate'}{k.allowed_ips?.length ? ` · ${k.allowed_ips.length} IP rule${k.allowed_ips.length > 1 ? 's' : ''}` : ''}</span> },
         { key: 'last_used_at', label: 'Last used', render: (k: any) => timeAgo(k.last_used_at) },
         { key: 'created_at', label: 'Created', render: (k: any) => formatDate(k.created_at, false) },
         { key: 'x', label: '', render: (k: any) => k.usable && <div className="flex justify-end gap-1">
+          <Button size="sm" variant="ghost" onClick={() => openEdit(k)} aria-label={`Limits for ${k.name}`}>Limits</Button>
           {!k.rotated_at && <Button size="sm" variant="ghost" onClick={() => setRotating(k)} aria-label={`Rotate ${k.name}`}>Rotate</Button>}
           <Button size="sm" variant="ghost" onClick={() => { if (confirm(`Revoke ${k.name}? Apps using it stop working.`)) revoke.mutate(k.id); }}>Revoke</Button>
         </div> },
@@ -91,6 +104,18 @@ function Keys({ id }: { id: string }) {
           <ErrorBox error={create.error} />
           <Input label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Mobile app" />
           <Select label="Type" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} options={[{ value: 'anon', label: 'anon — public, RLS applies' }, { value: 'service_role', label: 'service_role — server only, bypasses RLS' }]} />
+        </div>
+      </Modal>
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={`Limits for ${editing?.name ?? ''}`}
+        footer={<><Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button><Button onClick={() => saveLimits.mutate()} loading={saveLimits.isPending} data-testid="save-key-limits">Save</Button></>}>
+        <div className="space-y-3">
+          <ErrorBox error={saveLimits.error} />
+          <Input label="Requests per minute (all clients of this key)" type="number" min={1} value={limits.rate} onChange={(e) => setLimits({ ...limits, rate: e.target.value })} placeholder="default" hint="Empty: only the per-client default applies" />
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-700" htmlFor="key-ips">Allowed IPs / CIDR ranges (one per line)</label>
+            <textarea id="key-ips" rows={4} className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs" value={limits.ips} onChange={(e) => setLimits({ ...limits, ips: e.target.value })} placeholder={'203.0.113.7\n10.0.0.0/8'} />
+            <p className="text-xs text-gray-500">Empty: any address. Requests from elsewhere get 403.</p>
+          </div>
         </div>
       </Modal>
       <Modal open={!!rotating} onClose={() => setRotating(null)} title={`Rotate ${rotating?.name ?? ''}`}
