@@ -7,6 +7,7 @@ import helmet from '@fastify/helmet';
 import { collectDefaultMetrics, register, Counter } from 'prom-client';
 import { config } from './config.js';
 import { db, poolerDb } from './lib/db.js';
+import { replicaDb, replicaStatus } from './lib/replica.js';
 import { redis, redisSub } from './lib/schema-cache.js';
 import { authMiddleware } from './middleware/auth.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
@@ -43,7 +44,8 @@ server.get('/health/ready', async (_req, reply) => {
   try { await poolerDb`SELECT 1`; checks['postgresql'] = 'healthy'; } catch { checks['postgresql'] = 'unhealthy'; }
   try { await redis.ping(); checks['redis'] = 'healthy'; } catch { checks['redis'] = 'unhealthy'; }
   const ok = Object.values(checks).every((v) => v === 'healthy');
-  return reply.status(ok ? 200 : 503).send({ status: ok ? 'ready' : 'degraded', checks });
+  // a lagging / missing replica does not make the service unready: reads fall back to the primary
+  return reply.status(ok ? 200 : 503).send({ status: ok ? 'ready' : 'degraded', checks, read_replica: replicaStatus() });
 });
 server.get('/metrics', async (_req, reply) => reply.header('Content-Type', register.contentType).send(await register.metrics()));
 
@@ -74,7 +76,7 @@ try {
 
 const shutdown = async () => {
   await server.close();
-  await Promise.all([db.end({ timeout: 5 }), poolerDb.end({ timeout: 5 })]);
+  await Promise.all([db.end({ timeout: 5 }), poolerDb.end({ timeout: 5 }), replicaDb?.end({ timeout: 5 })]);
   redis.disconnect(); redisSub.disconnect();
   process.exit(0);
 };

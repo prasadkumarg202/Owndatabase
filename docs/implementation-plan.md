@@ -265,7 +265,7 @@
 - [x] Function isolation — [functions.md](functions.md)
 - [x] Organization invitations by email (accept / decline / revoke, role rules, dashboard page)
 - [x] Database webhooks (table change → signed HTTP, transactional outbox, retries) — [webhooks.md](webhooks.md)
-- [ ] Read-replica routing for REST reads
+- [x] Read-replica routing for REST reads (HA: HAProxy :5433, WAL-lag guard, primary fallback, `x-odb-read-consistency: strong`)
 - [ ] Usage limits / quotas per project
 - [ ] API key rotation workflow
 - [ ] Per-project migrations + CLI `db push/pull/reset`, `migration new`

@@ -6,6 +6,9 @@ const configSchema = z.object({
   // Transaction-mode PgBouncer works: every request runs in one transaction
   // with SET LOCAL, and queries use the unnamed (non-prepared) protocol.
   POOLER_URL: z.string().optional(),
+  // Optional streaming replica for REST reads (see lib/replica.ts)
+  READ_REPLICA_URL: z.string().optional().transform((v) => v || undefined),
+  REPLICA_MAX_LAG_BYTES: z.coerce.number().default(16 * 1024 * 1024),
   REDIS_URL: z.string().min(1),
   JWT_SECRET: z.string().min(32),
   SECRET_ENCRYPTION_KEY: z.string().regex(/^[0-9a-f]{64}$/i).optional(),

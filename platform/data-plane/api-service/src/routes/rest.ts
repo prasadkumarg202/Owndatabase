@@ -12,6 +12,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { poolerDb } from '../lib/db.js';
+import { routedRead } from '../lib/replica.js';
 import { getSchema, type TableInfo } from '../lib/schema-cache.js';
 import { withRole } from '../lib/platform-auth.js';
 import { config } from '../config.js';
@@ -105,7 +106,7 @@ export default async function restRoutes(server: FastifyInstance) {
       const sql = `SELECT COALESCE(json_agg(_r), '[]')::text AS body FROM (
         SELECT ${sel.list} FROM ${fq(req, table)} t ${whereSql} ${order} LIMIT ${limit} ${cursorCol ? '' : `OFFSET ${offset}`}) _r`;
 
-      const { body, total } = await withRole(poolerDb, req.auth, async (tx) => {
+      const { result: { body, total }, from } = await routedRead(req, (pool) => withRole(pool, req.auth, async (tx) => {
         const [row] = await tx.unsafe(sql, p.values as any[]);
         let total: number | null = null;
         if (countMode === 'exact') {
@@ -116,7 +117,8 @@ export default async function restRoutes(server: FastifyInstance) {
           total = Math.max(0, Number(c!['n']));
         }
         return { body: row!['body'] as string, total };
-      }, config.STATEMENT_TIMEOUT_MS);
+      }, config.STATEMENT_TIMEOUT_MS));
+      reply.header('x-odb-read-from', from);
 
       const rows = JSON.parse(body) as any[];
       const end = rows.length ? offset + rows.length - 1 : offset;

@@ -14,6 +14,8 @@
 #   * the single-node pgBackRest sidecar is disabled — it needs the data
 #     directory on the same host (see docs/ha.md → Backups).
 #   * Prometheus scrapes Patroni on every node (replication, leader, timeline).
+#   * REST reads (GET/HEAD) are served by the replicas via HAProxy :5433 while
+#     they are within 16 MB of the primary; otherwise, and for writes, the primary.
 # ─────────────────────────────────────────────────────────────────────────────
 services:
   postgres:
@@ -63,6 +65,11 @@ services:
     depends_on:
       ha-init:
         condition: service_completed_successfully
+
+  # REST reads go to the replicas (HAProxy :5433) while they keep up; see lib/replica.ts
+  api-service:
+    environment:
+      READ_REPLICA_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5433/${POSTGRES_DB:-owndatabase}
 
   pgbackrest:
     profiles: ["single-node"]
