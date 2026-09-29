@@ -15,6 +15,7 @@ import net from 'node:net';
 import { jwtVerify, SignJWT } from 'jose';
 import type postgres from 'postgres';
 import type { Redis } from 'ioredis';
+import { withSpan } from './tracing.js';
 
 export type ApiRole = 'anon' | 'authenticated' | 'service_role';
 
@@ -242,12 +243,12 @@ export async function withRole<T>(
   fn: (tx: postgres.TransactionSql<any>) => Promise<T>,
   statementTimeoutMs = 15000,
 ): Promise<T> {
-  return sql.begin(async (tx) => {
+  return withSpan('db.transaction', { 'db.system': 'postgresql', 'db.user': auth.role, 'odb.project_id': auth.project.id }, () => sql.begin(async (tx) => {
     await tx.unsafe(`SET LOCAL ROLE ${auth.role}`);
     await tx`SELECT set_config('request.jwt.claims', ${JSON.stringify(auth.claims ?? {})}, true),
                     set_config('request.jwt.claim.sub', ${String(auth.claims?.['sub'] ?? '')}, true),
                     set_config('search_path', ${'"' + auth.project.db_schema.replace(/"/g, '""') + '", public'}, true),
                     set_config('statement_timeout', ${String(statementTimeoutMs)}, true)`;
     return fn(tx);
-  }) as Promise<T>;
+  }) as Promise<T>);
 }

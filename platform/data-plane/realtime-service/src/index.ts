@@ -29,6 +29,7 @@ import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
 import { AuthError, PlatformAuth, type ApiRole, type ProjectInfo } from './lib/platform-auth.js';
 import { limitOf } from './lib/limits.js';
+import { initTracing, shutdownTracing, tracingPlugin } from './lib/tracing.js';
 
 const PORT = Number(process.env['PORT'] ?? 3004);
 const DATABASE_URL = process.env['DATABASE_URL']!;
@@ -240,7 +241,9 @@ async function presenceState(projectId: string, room: string) {
 
 // ── Server ──────────────────────────────────────────────────────────────────
 
+initTracing('realtime-service');
 const server = Fastify({ logger: { level: process.env['LOG_LEVEL'] ?? 'info', base: { service: 'realtime-service' } }, trustProxy: true });
+tracingPlugin(server);
 await server.register(cors, { origin: true });
 await server.register(websocket, { options: { maxPayload: 256 * 1024 } });
 
@@ -474,7 +477,7 @@ const shutdown = async () => {
   await server.close();
   await Promise.all([db.end({ timeout: 3 }), listenDb.end({ timeout: 3 })]);
   [redis, redisSub, redisAuthSub].forEach((r) => r.disconnect());
-  process.exit(0);
+  await shutdownTracing(); process.exit(0);
 };
 process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());

@@ -15,21 +15,24 @@ import { openApiHandler } from './lib/openapi.js';
 import restRoutes from './routes/rest.js';
 import rpcRoutes from './routes/rpc.js';
 import functionRoutes from './routes/functions.js';
+import { initTracing, shutdownTracing, tracingPlugin } from './lib/tracing.js';
 
 collectDefaultMetrics({ prefix: 'owndatabase_api_' });
 const requests = new Counter({ name: 'owndatabase_api_requests_total', help: 'Data API requests', labelNames: ['project_id', 'method', 'status'] });
 
+initTracing('api-service');
 const server = Fastify({
   logger: { level: config.LOG_LEVEL, base: { service: 'api-service' } },
   trustProxy: true,
   bodyLimit: 10 * 1024 * 1024,
 });
+tracingPlugin(server);
 
 await server.register(helmet, { contentSecurityPolicy: false });
 await server.register(cors, {
   origin: true, credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-api-key', 'Prefer', 'Range', 'Accept-Profile', 'Content-Profile', 'x-client-info'],
-  exposedHeaders: ['Content-Range', 'X-Next-Cursor', 'X-RateLimit-Limit', 'X-RateLimit-Remaining'],
+  exposedHeaders: ['Content-Range', 'X-Next-Cursor', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'x-trace-id', 'x-odb-read-from'],
   methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
 });
 
@@ -78,7 +81,7 @@ const shutdown = async () => {
   await server.close();
   await Promise.all([db.end({ timeout: 5 }), poolerDb.end({ timeout: 5 }), replicaDb?.end({ timeout: 5 })]);
   redis.disconnect(); redisSub.disconnect();
-  process.exit(0);
+  await shutdownTracing(); process.exit(0);
 };
 process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());

@@ -193,6 +193,9 @@ services:
     container_name: owndatabase-control-api
     restart: unless-stopped
     environment:
+      # OpenTelemetry traces (docs/tracing.md); set to empty to disable
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://tempo:4318}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
@@ -273,6 +276,9 @@ services:
     container_name: owndatabase-auth
     restart: unless-stopped
     environment:
+      # OpenTelemetry traces (docs/tracing.md); set to empty to disable
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://tempo:4318}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3002
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
@@ -334,6 +340,9 @@ services:
     container_name: owndatabase-api
     restart: unless-stopped
     environment:
+      # OpenTelemetry traces (docs/tracing.md); set to empty to disable
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://tempo:4318}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3003
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
@@ -409,6 +418,9 @@ services:
     container_name: owndatabase-realtime
     restart: unless-stopped
     environment:
+      # OpenTelemetry traces (docs/tracing.md); set to empty to disable
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://tempo:4318}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3004
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
@@ -442,6 +454,9 @@ services:
     container_name: owndatabase-storage
     restart: unless-stopped
     environment:
+      # OpenTelemetry traces (docs/tracing.md); set to empty to disable
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://tempo:4318}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3005
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
@@ -699,6 +714,30 @@ services:
       retries: 3
 
   # ─────────────────────────────────────────────────────────────────────────
+  # TRACES — Grafana Tempo (OTLP/HTTP on :4318, queried by Grafana on :3200)
+  # ─────────────────────────────────────────────────────────────────────────
+  tempo:
+    image: grafana/tempo:2.8.2
+    container_name: owndatabase-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yml", "-config.expand-env=true"]
+    user: "0"   # the named volume is root-owned
+    environment:
+      TEMPO_RETENTION: ${TEMPO_RETENTION:-72h}
+    volumes:
+      - ./infrastructure/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo_data:/var/tempo
+    networks:
+      - owndatabase
+    healthcheck:
+      # the image has no shell: exec form; the ingester takes up to a minute to report ready
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3200/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  # ─────────────────────────────────────────────────────────────────────────
   # LOG SHIPPER — Promtail
   # Collects logs from all containers and ships to Loki.
   # ─────────────────────────────────────────────────────────────────────────
@@ -787,6 +826,8 @@ volumes:
     name: owndatabase_grafana_data
   loki_data:
     name: owndatabase_loki_data
+  tempo_data:
+    name: owndatabase_tempo_data
   storage_data:
     name: owndatabase_storage_data
   backup_data:

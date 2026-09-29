@@ -42,6 +42,7 @@ import { z } from 'zod';
 import { AuthError, PlatformAuth, type RequestAuth } from './lib/platform-auth.js';
 import { createBackend } from './lib/backend.js';
 import { limitOf, QUOTA_ERROR } from './lib/limits.js';
+import { initTracing, shutdownTracing, tracingPlugin } from './lib/tracing.js';
 
 const PORT = Number(process.env['PORT'] ?? 3005);
 const DATABASE_URL = process.env['DATABASE_URL']!;
@@ -224,7 +225,9 @@ async function findObject(b: Bucket, path: string) {
 
 // ── Server ───────────────────────────────────────────────────────────────────
 
+initTracing('storage-api');
 const server = Fastify({ logger: { level: process.env['LOG_LEVEL'] ?? 'info', base: { service: 'storage-api' } }, trustProxy: true, bodyLimit: MAX_UPLOAD_SIZE });
+tracingPlugin(server);
 await server.register(helmet, { contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } });
 await server.register(cors, { origin: true, credentials: true, allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-api-key', 'x-upsert', 'cache-control', 'x-client-info'] });
 await server.register(multipart, { limits: { fileSize: MAX_UPLOAD_SIZE, files: 1 } });
@@ -627,6 +630,6 @@ try {
   server.log.error(err, 'Failed to start'); process.exit(1);
 }
 
-const shutdown = async () => { await server.close(); await db.end({ timeout: 5 }); redis.disconnect(); redisSub.disconnect(); process.exit(0); };
+const shutdown = async () => { await server.close(); await db.end({ timeout: 5 }); redis.disconnect(); redisSub.disconnect(); await shutdownTracing(); process.exit(0); };
 process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());

@@ -8,6 +8,8 @@ deleteDatasources:
     orgId: 1
   - name: Loki
     orgId: 1
+  - name: Tempo
+    orgId: 1
 
 datasources:
   - name: Prometheus
@@ -26,3 +28,23 @@ datasources:
     url: http://loki:3100
     version: 1
     editable: false
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    version: 1
+    editable: false
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: '-5m'
+        spanEndTimeShift: '5m'
+        filterByTraceID: false
+        customQuery: true
+        query: '{container=~"owndatabase-.*"} |= "$${__trace.traceId}"'
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true

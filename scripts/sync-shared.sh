@@ -8,4 +8,7 @@ for svc in platform/data-plane/auth-service platform/data-plane/api-service plat
     cp "$f" "$svc/src/lib/$(basename "$f")"
   done
 done
+# the control plane only shares the tracing module
+mkdir -p platform/control-plane/src/lib
+cp platform/shared/tracing.ts platform/control-plane/src/lib/tracing.ts
 echo "✓ shared files synced"

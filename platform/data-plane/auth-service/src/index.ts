@@ -19,14 +19,17 @@ import userRoutes from './routes/user.js';
 import mfaRoutes from './routes/mfa.js';
 import oauthRoutes from './routes/oauth.js';
 import adminRoutes from './routes/admin.js';
+import { initTracing, shutdownTracing, tracingPlugin } from './lib/tracing.js';
 
 collectDefaultMetrics({ prefix: 'owndatabase_auth_' });
 const requests = new Counter({ name: 'owndatabase_auth_requests_total', help: 'Auth requests', labelNames: ['route', 'status'] });
 
+initTracing('auth-service');
 const server = Fastify({
   logger: { level: config.LOG_LEVEL, base: { service: 'auth-service' } },
   trustProxy: true,
 });
+tracingPlugin(server);
 
 await server.register(helmet, { contentSecurityPolicy: false });
 await server.register(cors, {
@@ -88,7 +91,7 @@ const shutdown = async () => {
   await server.close();
   await db.end({ timeout: 5 });
   redis.disconnect();
-  process.exit(0);
+  await shutdownTracing(); process.exit(0);
 };
 process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());

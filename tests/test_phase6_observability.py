@@ -111,6 +111,6 @@ def test_grafana_up_with_provisioned_datasources():
     if not password:
         pytest.skip("set GRAFANA_PASSWORD to check the provisioned datasources")
     auth = (os.environ.get("GRAFANA_USER", "admin"), password)
-    for uid, kind in (("prometheus", "prometheus"), ("loki", "loki")):  # uids the dashboards use
+    for uid, kind in (("prometheus", "prometheus"), ("loki", "loki"), ("tempo", "tempo")):  # uids the dashboards use
         d = requests.get(f"{BASE}/grafana/api/datasources/uid/{uid}", auth=auth, timeout=10)
         assert d.status_code == 200 and d.json()["type"] == kind, (uid, d.text)

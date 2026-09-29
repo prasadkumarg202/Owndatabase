@@ -1,0 +1,30 @@
+# Grafana Tempo — trace storage for OpenTelemetry (see docs/observability-tracing.md).
+# Services export OTLP/HTTP to tempo:4318; Grafana queries tempo:3200.
+server:
+  http_listen_port: 3200
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    block_retention: ${TEMPO_RETENTION:-72h}
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+    wal:
+      path: /var/tempo/wal
+
+usage_report:
+  reporting_enabled: false

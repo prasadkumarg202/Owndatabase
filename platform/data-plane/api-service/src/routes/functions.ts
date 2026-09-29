@@ -19,6 +19,7 @@ import { AuthError, type RequestAuth } from '../lib/platform-auth.js';
 import { platform } from '../middleware/auth.js';
 import { redis } from '../lib/schema-cache.js';
 import { limitOf, QUOTA_ERROR, secondsUntilUtcMidnight, utcDay } from '../lib/limits.js';
+import { injectTrace, withSpan } from '../lib/tracing.js';
 
 const invocations = new Counter({ name: 'owndatabase_functions_invocations_total', help: 'Function invocations', labelNames: ['project_id', 'status'] });
 const durations = new Histogram({ name: 'owndatabase_functions_duration_seconds', help: 'Function duration', buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30] });
@@ -51,7 +52,7 @@ export async function runFunction(fn: any, request: Record<string, unknown>, env
   try {
     const res = await fetch(`${config.FUNCTIONS_RUNTIME_URL.replace(/\/$/, '')}/run`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${config.FUNCTIONS_RUNTIME_TOKEN}` },
+      headers: injectTrace({ 'content-type': 'application/json', authorization: `Bearer ${config.FUNCTIONS_RUNTIME_TOKEN}` }),
       body: JSON.stringify({
         project_id: fn.project_id, function_id: fn.id, version: fn.version, code: fn.code,
         memory_mb: fn.memory_mb, timeout_ms: fn.timeout_ms, request, env,
@@ -155,7 +156,7 @@ export default async function functionRoutes(server: FastifyInstance) {
     running++;
     let r: RunResult;
     try {
-      r = await runFunction(fn, request, env);
+      r = await withSpan('function.invoke', { 'odb.function': String(fn['slug']), 'odb.project_id': projectId }, () => runFunction(fn, request, env));
     } finally {
       running--;
     }

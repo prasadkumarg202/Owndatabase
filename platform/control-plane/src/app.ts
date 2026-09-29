@@ -32,14 +32,17 @@ import { databaseRoutes } from './routes/database.js';
 import { functionRoutes } from './routes/functions.js';
 import { projectUserRoutes } from './routes/project-users.js';
 import { observabilityRoutes } from './routes/observability.js';
+import { initTracing, tracingPlugin } from './lib/tracing.js';
 
 export async function buildApp() {
+  initTracing('control-api');
   const server = Fastify({
     logger: logger as any,
     trustProxy: true,
     requestIdHeader: 'x-request-id',
     bodyLimit: 2 * 1024 * 1024,
   });
+  tracingPlugin(server);
 
   await server.register(helmet, { contentSecurityPolicy: false });
   await server.register(cors, {

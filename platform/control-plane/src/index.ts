@@ -9,6 +9,7 @@ import { db, testConnection } from './lib/db.js';
 import { redis } from './lib/redis.js';
 import { runMigrations } from './lib/migrate.js';
 import { closeQueues } from './lib/queues.js';
+import { shutdownTracing } from './lib/tracing.js';
 import { startLimitWatcher, stopLimitWatcher } from './routes/limits.js';
 
 // Wait for PostgreSQL (container start order is not a readiness guarantee)
@@ -49,6 +50,7 @@ const shutdown = async (signal: string) => {
     await closeQueues();
     await db.end({ timeout: 5 });
     redis.disconnect();
+    await shutdownTracing();
     process.exit(0);
   } catch (err) {
     logger.error(err, 'Error during shutdown');
