@@ -18,6 +18,9 @@ def test_backup_and_restore_roundtrip(owner):
     p = create_project(owner, "Backup test")
     p.sql("create table orders (id int primary key, total numeric); insert into orders values (1, 10), (2, 20)")
     p.owner.post(f"/projects/{p.id}/tables/orders/realtime", json={"enabled": True})
+    # a database webhook adds a trigger calling control_plane.db_webhook_fire(): the dump must still verify
+    hook = p.owner.post(f"/projects/{p.id}/webhooks", json={"name": "orders", "table": "orders", "events": ["insert"], "url": "https://example.com/h"})
+    assert hook.status_code == 201, hook.text
     b = backup_and_wait(p)
     assert b["status"] == "verified", b.get("error_message")
     assert b["is_encrypted"] is True and b["size_bytes"] > 0
@@ -37,6 +40,7 @@ def test_backup_and_restore_roundtrip(owner):
     # REST + realtime trigger still work after restore (ownership and grants re-applied)
     assert len(p.rest("GET", "orders", key=p.service_key).json()) == 2
     assert next(t for t in p.owner.get(f"/projects/{p.id}/tables").json()["data"] if t["name"] == "orders")["realtime_enabled"] is True
+    assert p.owner.get(f"/projects/{p.id}/webhooks").json()["data"][0]["trigger_installed"] is True
     # the project owner can still alter restored tables
     p.sql("alter table orders add column note text")
 

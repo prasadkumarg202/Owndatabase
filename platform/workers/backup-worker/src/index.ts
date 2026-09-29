@@ -151,6 +151,7 @@ async function backupRun(job: Job) {
           CREATE SCHEMA IF NOT EXISTS auth; CREATE TABLE IF NOT EXISTS auth.users (id uuid primary key);
           CREATE SCHEMA IF NOT EXISTS control_plane;
           CREATE OR REPLACE FUNCTION control_plane.notify_realtime_change() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$;
+          CREATE OR REPLACE FUNCTION control_plane.db_webhook_fire() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$;
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
           CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$ SELECT NULL::text $$;
           CREATE OR REPLACE FUNCTION auth.email() RETURNS text LANGUAGE sql STABLE AS $$ SELECT NULL::text $$;
