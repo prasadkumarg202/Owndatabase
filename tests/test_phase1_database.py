@@ -133,6 +133,31 @@ def test_extensions(project):
     assert project.owner.post(f"/projects/{project.id}/extensions", json={"name": "plpython3u"}).status_code == 400
 
 
+def test_pgvector_and_postgis(project):
+    for name in ("vector", "postgis"):
+        r = project.owner.post(f"/projects/{project.id}/extensions", json={"name": name})
+        assert r.status_code == 201, r.text
+    exts = {e["name"]: e for e in project.owner.get(f"/projects/{project.id}/extensions").json()["data"]}
+    assert exts["vector"]["installed"] is True and exts["postgis"]["installed"] is True
+
+    project.sql("""
+        create table if not exists docs (id int primary key, embedding vector(3));
+        insert into docs values (1, '[1,0,0]'), (2, '[0,1,0]'), (3, '[0.9,0.1,0]') on conflict do nothing;
+        create index if not exists docs_embedding_idx on docs using hnsw (embedding vector_cosine_ops);
+        create table if not exists places (id int primary key, name text, geo geography(point, 4326));
+        insert into places values
+          (1, 'RK Beach',  'SRID=4326;POINT(83.3240 17.7140)'),
+          (2, 'Rushikonda','SRID=4326;POINT(83.3850 17.7820)'),
+          (3, 'Hyderabad', 'SRID=4326;POINT(78.4867 17.3850)') on conflict do nothing;
+    """)
+    rows = project.sql("select id from docs order by embedding <=> '[1,0,0]' limit 2")["data"]
+    assert [r["id"] for r in rows] == [1, 3]
+    rows = project.sql("""
+        select name from places
+        where ST_DWithin(geo, 'SRID=4326;POINT(83.3000 17.7200)'::geography, 20000) order by name""")["data"]
+    assert [r["name"] for r in rows] == ["RK Beach", "Rushikonda"]
+
+
 def test_custom_roles(project):
     r = project.owner.post(f"/projects/{project.id}/roles", json={"name": "reporting"})
     assert r.status_code == 201, r.text

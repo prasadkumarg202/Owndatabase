@@ -49,7 +49,7 @@ services:
   # ─────────────────────────────────────────────────────────────────────────
   postgres:
     build:
-      context: ./infrastructure/postgres   # postgres:16-alpine + pgBackRest
+      context: ./infrastructure/postgres   # PostgreSQL 16 + PostGIS + pgvector + pgBackRest
     image: owndatabase-postgres
     container_name: owndatabase-postgres
     restart: unless-stopped

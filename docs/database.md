@@ -75,7 +75,10 @@ auth.email()  -- Returns current user email
 
 ## Extensions
 
-Only enabled explicitly per project:
+Only enabled explicitly per project (Project → Database → Extensions, or
+`POST /projects/:id/extensions`). Both images ship them: the single-node
+`owndatabase-postgres` image (postgis/postgis base + pgvector built in) and
+Spilo in HA mode.
 
 | Extension | Purpose | Default |
 |---|---|---|
@@ -83,8 +86,8 @@ Only enabled explicitly per project:
 | `uuid-ossp` | UUID generation | ✅ Enabled |
 | `pg_stat_statements` | Query statistics | ✅ Enabled |
 | `pg_trgm` | Fuzzy text search | ✅ Enabled |
-| `postgis` | Geographic queries | 🔘 On request |
-| `vector` | pgvector embeddings | 🔘 On request |
+| `postgis` | Geographic queries (PostGIS 3.5) | 🔘 Enable per project |
+| `vector` | pgvector 0.8 embeddings, HNSW/IVFFlat indexes | 🔘 Enable per project |
 
 ---
 
