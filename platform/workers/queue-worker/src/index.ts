@@ -8,6 +8,8 @@
  *   sql.run           { query }                               → SQL as the project owner role
  *   noop / fail.test                                          → for health checks and DLQ tests
  *
+ * It also delivers database webhooks (see db-webhooks.ts).
+ *
  * Retries use exponential backoff (attempts set per job). Jobs that exhaust
  * their attempts are copied to the project's dead-letter list `odb:dlq:<projectId>`.
  */
@@ -16,19 +18,18 @@ import { Redis } from 'ioredis';
 import postgres from 'postgres';
 import pino from 'pino';
 import http from 'node:http';
-import dns from 'node:dns/promises';
-import net from 'node:net';
 import { createDecipheriv, createHmac } from 'node:crypto';
 import { SignJWT } from 'jose';
 import nodemailer from 'nodemailer';
 import { collectDefaultMetrics, register, Counter } from 'prom-client';
+import { assertPublicUrl } from './net-guard.js';
+import { startDbWebhookDispatcher } from './db-webhooks.js';
 
 const logger = pino({ level: process.env['LOG_LEVEL'] ?? 'info', base: { service: 'queue-worker' } });
 const REDIS_URL = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
 const DATABASE_URL = process.env['DATABASE_URL'] ?? '';
 const JWT_SECRET = process.env['JWT_SECRET'] ?? '';
 const API_SERVICE_URL = process.env['API_SERVICE_URL'] ?? 'http://api-service:3003';
-const ALLOW_PRIVATE_WEBHOOKS = process.env['WEBHOOK_ALLOW_PRIVATE'] === 'true';
 const ENC_KEY = process.env['SECRET_ENCRYPTION_KEY'];
 const PORT = Number(process.env['PORT'] ?? 3006);
 const CONCURRENCY = Number(process.env['QUEUE_CONCURRENCY'] ?? 5);
@@ -46,23 +47,6 @@ const mailer = process.env['SMTP_HOST']
       auth: process.env['SMTP_USER'] ? { user: process.env['SMTP_USER'], pass: process.env['SMTP_PASSWORD'] ?? '' } : undefined,
     })
   : null;
-
-function isPrivateIp(ip: string): boolean {
-  if (net.isIPv4(ip)) {
-    const [a, b] = ip.split('.').map(Number) as [number, number];
-    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
-  }
-  const l = ip.toLowerCase();
-  return l === '::1' || l.startsWith('fc') || l.startsWith('fd') || l.startsWith('fe80') || l.startsWith('::ffff:127.') || l === '::';
-}
-
-async function assertPublicUrl(raw: string) {
-  const u = new URL(raw);
-  if (!['http:', 'https:'].includes(u.protocol)) throw new Error('Only http(s) webhooks are allowed');
-  if (ALLOW_PRIVATE_WEBHOOKS) return;
-  const addrs = net.isIP(u.hostname) ? [u.hostname] : (await dns.lookup(u.hostname, { all: true })).map((a) => a.address);
-  if (addrs.some(isPrivateIp)) throw new Error('Webhooks to private / internal addresses are blocked (set WEBHOOK_ALLOW_PRIVATE=true to allow)');
-}
 
 function decrypt(hex: string): string {
   if (!ENC_KEY) throw new Error('SECRET_ENCRYPTION_KEY is not set');
@@ -170,6 +154,8 @@ worker.on('failed', async (job, err) => {
 });
 worker.on('error', (err) => logger.error({ err: err.message }, 'Worker error'));
 
+const stopDbWebhooks = startDbWebhookDispatcher(sql, logger, ENC_KEY);
+
 http.createServer(async (req, res) => {
   if (req.url === '/health') {
     res.writeHead(worker.isRunning() ? 200 : 503, { 'content-type': 'application/json' });
@@ -182,6 +168,6 @@ http.createServer(async (req, res) => {
   res.writeHead(404).end();
 }).listen(PORT, () => logger.info({ port: PORT }, 'Queue worker started'));
 
-const shutdown = async () => { await worker.close(); await sql.end({ timeout: 2 }); connection.disconnect(); redis.disconnect(); process.exit(0); };
+const shutdown = async () => { stopDbWebhooks(); await worker.close(); await sql.end({ timeout: 2 }); connection.disconnect(); redis.disconnect(); process.exit(0); };
 process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());

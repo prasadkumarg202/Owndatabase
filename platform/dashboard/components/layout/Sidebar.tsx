@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, FolderOpen, Database, Code2, Users, HardDrive, Radio, Zap, Clock, ListOrdered,
-  Archive, ScrollText, Activity, Settings, BarChart2, ExternalLink, Home, Building2,
+  Archive, ScrollText, Activity, Settings, BarChart2, ExternalLink, Home, Building2, Webhook,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +29,7 @@ export function Sidebar() {
           { label: 'Functions', href: p('/functions'), icon: Zap },
           { label: 'Queues', href: p('/queues'), icon: ListOrdered },
           { label: 'Cron Jobs', href: p('/cron'), icon: Clock },
+          { label: 'Webhooks', href: p('/webhooks'), icon: Webhook },
         ] },
         { label: 'Operations', items: [
           { label: 'Backups', href: p('/backups'), icon: Archive },

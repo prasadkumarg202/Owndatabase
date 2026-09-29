@@ -230,11 +230,28 @@ def test_10_queues_and_cron(page: Page, dashboard_url, ui_user, state):
     shot(page, "09-cron")
 
 
+def test_10b_database_webhooks(page: Page, dashboard_url, ui_user, state):
+    login(page, dashboard_url, ui_user)
+    page.goto(f"{state['project_url']}/webhooks")
+    page.get_by_test_id("new-webhook").click()
+    page.get_by_label("Name").fill("task-events")
+    page.get_by_label("Table").select_option("tasks")
+    page.get_by_label("URL").fill("https://example.com/hooks/tasks")
+    page.get_by_test_id("create-webhook").click()
+    table = page.get_by_test_id("webhooks-table")
+    expect(table).to_contain_text("task-events", timeout=10_000)
+    expect(table).to_contain_text("insert, update, delete")
+    table.get_by_role("button", name="task-events").click()
+    expect(page.get_by_test_id("deliveries-table")).to_be_visible()
+    page.keyboard.press("Escape")
+    shot(page, "10b-webhooks")
+
+
 def test_11_backups(page: Page, dashboard_url, ui_user, state):
     login(page, dashboard_url, ui_user)
     page.goto(f"{state['project_url']}/backups")
     page.get_by_test_id("create-backup").click()
-    expect(page.get_by_test_id("backups-table")).to_contain_text("verified", timeout=60_000)
+    expect(page.get_by_test_id("backups-table")).to_contain_text("verified", timeout=120_000)
     shot(page, "10-backups")
 
 

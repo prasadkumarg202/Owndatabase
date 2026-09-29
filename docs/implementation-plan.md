@@ -264,7 +264,7 @@
 - [x] Phone auth (SMS OTP) — [phone-auth.md](phone-auth.md)
 - [x] Function isolation — [functions.md](functions.md)
 - [x] Organization invitations by email (accept / decline / revoke, role rules, dashboard page)
-- [ ] Database webhooks (table change → HTTP)
+- [x] Database webhooks (table change → signed HTTP, transactional outbox, retries) — [webhooks.md](webhooks.md)
 - [ ] Read-replica routing for REST reads
 - [ ] Usage limits / quotas per project
 - [ ] API key rotation workflow
