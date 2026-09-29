@@ -86,6 +86,7 @@
 - [x] Logout (single + all devices)
 - [x] OAuth (Google, GitHub)
 - [x] MFA/TOTP
+- [x] Phone auth: SMS OTP, phone + password, phone change (Twilio / signed webhook) — see [phone-auth.md](phone-auth.md)
 - [x] Auth dashboard (users, sessions)
 - [x] Auth configuration per project
 - [x] Rate limiting + brute force protection (per-email lockout, 429 + Retry-After)

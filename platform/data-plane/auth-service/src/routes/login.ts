@@ -5,11 +5,15 @@ import { randomBytes } from 'node:crypto';
 import { db } from '../lib/db.js';
 import { projectContext } from '../middleware/auth.js';
 import {
-  ARGON2, audit, authSettings, clearFailedLogins, getUserByEmail, isLocked, issueSession, recordFailedLogin,
+  ARGON2, audit, authSettings, clearFailedLogins, getUserByEmail, getUserByPhone, isLocked, issueSession, recordFailedLogin,
 } from '../lib/session.js';
+import { normalizePhone } from '../lib/sms.js';
 import { refreshSession } from './refresh.js';
 
-const passwordGrant = z.object({ email: z.string().email().max(255), password: z.string().min(1).max(128) });
+const passwordGrant = z.union([
+  z.object({ email: z.string().email().max(255), password: z.string().min(1).max(128) }),
+  z.object({ phone: z.string().max(32), password: z.string().min(1).max(128) }),
+]);
 
 const DUMMY = argon2.hash(randomBytes(12).toString('hex'), ARGON2);
 
@@ -18,8 +22,12 @@ export default async function (server: FastifyInstance) {
     const { project } = req.ctx;
     const settings = authSettings(project);
     const parsed = passwordGrant.safeParse(req.body);
-    if (!parsed.success) return reply.status(400).send({ error: 'Bad Request', message: 'email and password are required' });
-    const email = parsed.data.email.toLowerCase().trim();
+    if (!parsed.success) return reply.status(400).send({ error: 'Bad Request', message: 'email (or phone) and password are required' });
+    const byPhone = 'phone' in parsed.data;
+    // `email` is the login identifier used for lockout and audit (an E.164 number for phone logins)
+    const email = byPhone ? normalizePhone((parsed.data as { phone: string }).phone) : (parsed.data as { email: string }).email.toLowerCase().trim();
+    if (!email) return reply.status(400).send({ error: 'Bad Request', message: 'A valid phone number in international format is required' });
+    if (byPhone && !settings.enable_phone_auth) return reply.status(403).send({ error: 'Forbidden', message: 'Phone sign-in is disabled for this project' });
 
     const lockedFor = await isLocked(project.id, email);
     if (lockedFor) {
@@ -29,7 +37,7 @@ export default async function (server: FastifyInstance) {
       });
     }
 
-    const user = await getUserByEmail(project.id, email);
+    const user = byPhone ? await getUserByPhone(project.id, email) : await getUserByEmail(project.id, email);
     const [pw] = user ? await db`SELECT password_hash FROM auth.user_passwords WHERE user_id = ${user.id}` : [];
     const hash = (pw?.['password_hash'] as string | undefined) ?? (await DUMMY);
     let valid = false;
@@ -43,13 +51,16 @@ export default async function (server: FastifyInstance) {
     if (user.banned_until && new Date(user.banned_until) > new Date()) {
       return reply.status(403).send({ error: 'Forbidden', message: 'User is banned' });
     }
-    if (settings.require_email_confirmation && !user.email_verified) {
+    if (byPhone && !user.phone_verified) {
+      return reply.status(403).send({ error: 'Phone Not Confirmed', message: 'Confirm your phone number before signing in' });
+    }
+    if (!byPhone && settings.require_email_confirmation && !user.email_verified) {
       return reply.status(403).send({ error: 'Email Not Confirmed', message: 'Confirm your email address before signing in' });
     }
 
     await clearFailedLogins(project.id, email);
     const session = await issueSession(project, user, req);
-    await audit(project.id, 'login', req, user.id, session.session_id, { method: 'password' });
+    await audit(project.id, 'login', req, user.id, session.session_id, { method: byPhone ? 'phone_password' : 'password' });
     return reply.send(session);
   }
 

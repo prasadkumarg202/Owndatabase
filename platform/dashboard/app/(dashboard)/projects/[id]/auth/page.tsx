@@ -113,6 +113,7 @@ function Settings({ projectId }: { projectId: string }) {
   if (!cfg) return <p className="text-sm text-gray-500">Loading…</p>;
   const set = (k: string, v: any) => setCfg({ ...cfg, [k]: v });
   const prov = (p: string, k: string, v: any) => setCfg({ ...cfg, providers: { ...cfg.providers, [p]: { ...cfg.providers?.[p], [k]: v } } });
+  const sms = (k: string, v: any) => setCfg({ ...cfg, sms: { ...cfg.sms, [k]: v } });
   const toggle = (k: string, label: string, hint?: string) => (
     <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={!!cfg[k]} onChange={(e) => set(k, e.target.checked)} /><span>{label}{hint && <span className="block text-xs text-gray-500">{hint}</span>}</span></label>
   );
@@ -148,6 +149,31 @@ function Settings({ projectId }: { projectId: string }) {
               <Input label="Client secret" type="password" value={cfg.providers?.[p]?.client_secret ?? ''} onChange={(e) => prov(p, 'client_secret', e.target.value)} />
             </div>
           ))}
+        </div>
+      </Card>
+      <Card title="Phone (SMS)" description="Sign-in with one-time SMS codes and phone + password. Numbers are stored in international format (+919876543210).">
+        <div className="grid gap-4 md:grid-cols-2">
+          {toggle('enable_phone_auth', 'Enable phone sign-in')}
+          <Input label="Code lifetime (minutes)" type="number" value={cfg.sms_otp_expiry_minutes} onChange={(e) => set('sms_otp_expiry_minutes', Number(e.target.value))} />
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-700" htmlFor="sms-provider">SMS provider</label>
+            <select id="sms-provider" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" value={cfg.sms?.provider ?? 'none'} onChange={(e) => sms('provider', e.target.value)}>
+              <option value="none">Platform default</option>
+              <option value="twilio">Twilio</option>
+              <option value="webhook">Webhook (MSG91, Gupshup, SNS, …)</option>
+            </select>
+          </div>
+          <Input label="Message template" value={cfg.sms?.template ?? ''} onChange={(e) => sms('template', e.target.value)} placeholder="Your verification code is {{code}}" />
+          {cfg.sms?.provider === 'twilio' && (<>
+            <Input label="Account SID" value={cfg.sms?.twilio_account_sid ?? ''} onChange={(e) => sms('twilio_account_sid', e.target.value)} />
+            <Input label="Auth token" type="password" value={cfg.sms?.twilio_auth_token ?? ''} onChange={(e) => sms('twilio_auth_token', e.target.value)} />
+            <Input label="From number" value={cfg.sms?.twilio_from ?? ''} onChange={(e) => sms('twilio_from', e.target.value)} placeholder="+15005550006" />
+            <Input label="Messaging service SID (instead of From)" value={cfg.sms?.twilio_messaging_service_sid ?? ''} onChange={(e) => sms('twilio_messaging_service_sid', e.target.value)} />
+          </>)}
+          {cfg.sms?.provider === 'webhook' && (<>
+            <Input label="Webhook URL" value={cfg.sms?.webhook_url ?? ''} onChange={(e) => sms('webhook_url', e.target.value)} placeholder="https://sms-adapter.example.com/send" />
+            <Input label="Signing secret (x-odb-signature)" type="password" value={cfg.sms?.webhook_secret ?? ''} onChange={(e) => sms('webhook_secret', e.target.value)} />
+          </>)}
         </div>
       </Card>
       <div className="flex items-center gap-3"><Button onClick={() => save.mutate()} loading={save.isPending} data-testid="save-auth-settings">Save settings</Button><ErrorBox error={save.error} /></div>

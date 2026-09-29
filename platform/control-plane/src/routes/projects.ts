@@ -53,7 +53,18 @@ export const DEFAULT_AUTH_CONFIG = {
     google: { enabled: false, client_id: '', client_secret: '' },
     github: { enabled: false, client_id: '', client_secret: '' },
   },
+  enable_phone_auth: false,
+  sms_otp_expiry_minutes: 10,
+  sms: {
+    provider: 'none' as 'none' | 'twilio' | 'webhook',
+    twilio_account_sid: '', twilio_auth_token: '', twilio_from: '', twilio_messaging_service_sid: '',
+    webhook_url: '', webhook_secret: '',
+    template: 'Your verification code is {{code}}',
+  },
 };
+
+const SMS_SECRETS = ['twilio_auth_token', 'webhook_secret'] as const;
+const MASK = '••••••••';
 
 const authConfigSchema = z.object({
   enable_signup: z.boolean(),
@@ -69,6 +80,18 @@ const authConfigSchema = z.object({
   providers: z.object({
     google: z.object({ enabled: z.boolean(), client_id: z.string(), client_secret: z.string() }).partial(),
     github: z.object({ enabled: z.boolean(), client_id: z.string(), client_secret: z.string() }).partial(),
+  }).partial(),
+  enable_phone_auth: z.boolean(),
+  sms_otp_expiry_minutes: z.number().int().min(1).max(60),
+  sms: z.object({
+    provider: z.enum(['none', 'twilio', 'webhook']),
+    twilio_account_sid: z.string().max(64),
+    twilio_auth_token: z.string().max(128),
+    twilio_from: z.string().max(32),
+    twilio_messaging_service_sid: z.string().max(64),
+    webhook_url: z.string().max(500).refine((u) => u === '' || /^https?:\/\//.test(u), 'webhook_url must be an http(s) URL'),
+    webhook_secret: z.string().max(200),
+    template: z.string().max(300).refine((t) => t.includes('{{code}}'), 'template must contain {{code}}'),
   }).partial(),
 }).partial();
 
@@ -88,8 +111,9 @@ export function endpointsFor(projectId: string) {
 function redactAuthConfig(cfg: any) {
   const clone = JSON.parse(JSON.stringify(cfg));
   for (const p of Object.values(clone.providers ?? {}) as any[]) {
-    if (p?.client_secret) p.client_secret = '••••••••';
+    if (p?.client_secret) p.client_secret = MASK;
   }
+  for (const k of SMS_SECRETS) if (clone.sms?.[k]) clone.sms[k] = MASK;
   return clone;
 }
 
@@ -316,8 +340,18 @@ export const projectRoutes: FastifyPluginAsync = async (server: FastifyInstance)
     for (const [name, prov] of Object.entries(input.data.providers ?? {})) {
       const merged = { ...current.providers?.[name], ...prov };
       // A redacted secret coming back from the UI means "unchanged"
-      if (prov?.client_secret === '••••••••') merged.client_secret = current.providers?.[name]?.client_secret ?? '';
+      if (prov?.client_secret === MASK) merged.client_secret = current.providers?.[name]?.client_secret ?? '';
       next.providers[name] = merged;
+    }
+    if (input.data.sms) {
+      next.sms = { ...DEFAULT_AUTH_CONFIG.sms, ...current.sms, ...input.data.sms };
+      for (const k of SMS_SECRETS) if (input.data.sms[k] === MASK) next.sms[k] = current.sms?.[k] ?? '';
+      if (next.sms.provider === 'twilio' && !(next.sms.twilio_account_sid && next.sms.twilio_auth_token && (next.sms.twilio_from || next.sms.twilio_messaging_service_sid))) {
+        return reply.status(400).send({ error: 'Validation Error', message: 'Twilio needs an account SID, auth token and a from number or messaging service SID' });
+      }
+      if (next.sms.provider === 'webhook' && !next.sms.webhook_url) {
+        return reply.status(400).send({ error: 'Validation Error', message: 'The webhook provider needs a webhook_url' });
+      }
     }
     await db`
       UPDATE control_plane.projects SET settings = jsonb_set(settings, '{auth}', ${db.json(next)}) WHERE id = ${id}`;

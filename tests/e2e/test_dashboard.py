@@ -169,8 +169,14 @@ def test_07_auth_users(page: Page, dashboard_url, ui_user, state):
     page.keyboard.press("Escape")
     page.get_by_role("tab", name="Settings").click()
     page.get_by_label("Minimum password length").fill("10")
+    page.get_by_label("Enable phone sign-in").check()
+    page.get_by_label("SMS provider").select_option("webhook")
+    page.get_by_label("Webhook URL").fill("https://sms.example.com/send")
+    page.get_by_label("Signing secret (x-odb-signature)").fill("hook-secret")
     page.get_by_test_id("save-auth-settings").click()
     expect(page.get_by_role("status").filter(has_text="Auth settings saved")).to_be_visible(timeout=10_000)
+    # the secret comes back masked
+    expect(page.get_by_label("Signing secret (x-odb-signature)")).to_have_value("••••••••")
     shot(page, "06-auth")
 
 

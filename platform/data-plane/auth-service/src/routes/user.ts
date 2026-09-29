@@ -3,13 +3,16 @@ import { z } from 'zod';
 import argon2 from 'argon2';
 import { db } from '../lib/db.js';
 import { userContext } from '../middleware/auth.js';
-import { ARGON2, audit, authSettings, getUserByEmail, getUserById, publicUser } from '../lib/session.js';
+import { ARGON2, audit, authSettings, getUserByEmail, getUserById, getUserByPhone, publicUser } from '../lib/session.js';
+import { normalizePhone } from '../lib/sms.js';
+import { phoneAuthError, sendPhoneOtp } from './verify.js';
 
 const updateSchema = z.object({
   password: z.string().max(128).optional(),
   data: z.record(z.unknown()).optional(),
   raw_user_meta_data: z.record(z.unknown()).optional(),
   email: z.string().email().optional(),
+  phone: z.string().max(32).optional(),
 });
 
 export default async function (server: FastifyInstance) {
@@ -30,8 +33,24 @@ export default async function (server: FastifyInstance) {
 
     // With MFA enrolled, sensitive changes need an aal2 session
     const [mfa] = await db`SELECT 1 FROM auth.mfa_factors WHERE user_id = ${userId} AND status = 'verified' LIMIT 1`;
-    if (mfa && (b.password || b.email) && claims?.['aal'] !== 'aal2') {
-      return reply.status(403).send({ error: 'MFA Required', message: 'Verify your second factor before changing password or email' });
+    if (mfa && (b.password || b.email || b.phone) && claims?.['aal'] !== 'aal2') {
+      return reply.status(403).send({ error: 'MFA Required', message: 'Verify your second factor before changing password, email or phone' });
+    }
+    // A new phone number only takes effect after POST /verify { type: 'phone_change', phone, token }
+    let phoneChange: string | null = null;
+    if (b.phone !== undefined) {
+      const phone = normalizePhone(b.phone);
+      if (!phone) return reply.status(400).send({ error: 'Bad Request', message: 'A valid phone number in international format is required' });
+      const blocked = phoneAuthError(project);
+      if (blocked) return reply.status(blocked.status).send({ error: blocked.error, message: blocked.message });
+      const other = await getUserByPhone(project.id, phone);
+      if (other && other.id !== userId) return reply.status(409).send({ error: 'Conflict', message: 'Phone number already in use' });
+      const current = await getUserById(project.id, userId);
+      if (current?.phone !== phone || !current.phone_verified) {
+        const failed = await sendPhoneOtp(req, project, current!, phone, 'phone_verify');
+        if (failed) return reply.status(failed.status).send({ error: failed.error, message: failed.message });
+        phoneChange = phone;
+      }
     }
     if (b.password !== undefined) {
       if (b.password.length < settings.password_min_length) {
@@ -53,7 +72,7 @@ export default async function (server: FastifyInstance) {
     const meta = b.data ?? b.raw_user_meta_data;
     if (meta) await db`UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data || ${db.json(meta as any)} WHERE id = ${userId}`;
     const user = await getUserById(project.id, userId);
-    return reply.send({ ...publicUser(user!), user: publicUser(user!) });
+    return reply.send({ ...publicUser(user!), user: publicUser(user!), ...(phoneChange ? { new_phone: phoneChange } : {}) });
   };
   server.put('/v1/:projectId/user', { preValidation: [userContext] }, update);
   server.patch('/v1/:projectId/user', { preValidation: [userContext] }, update);

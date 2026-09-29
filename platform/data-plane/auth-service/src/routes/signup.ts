@@ -6,7 +6,9 @@ import { generateLinkToken, generateOTP, hashOTP } from '../lib/otp.js';
 import { sendVerificationEmail } from '../lib/email.js';
 import { config, authPublicUrl } from '../config.js';
 import { projectContext } from '../middleware/auth.js';
-import { allow, ARGON2, audit, authSettings, getUserByEmail, issueSession, publicUser, type UserRow } from '../lib/session.js';
+import { allow, ARGON2, audit, authSettings, getUserByEmail, getUserByPhone, issueSession, publicUser, type UserRow } from '../lib/session.js';
+import { normalizePhone } from '../lib/sms.js';
+import { phoneAuthError, sendPhoneOtp } from './verify.js';
 
 const signupSchema = z.object({
   email: z.string().email().max(255).transform((e) => e.toLowerCase().trim()),
@@ -15,8 +17,59 @@ const signupSchema = z.object({
   options: z.object({ data: z.record(z.unknown()).optional(), email_redirect_to: z.string().optional() }).optional(),
 });
 
+const phoneSignupSchema = z.object({
+  phone: z.string().max(32),
+  password: z.string().max(128),
+  data: z.record(z.unknown()).optional(),
+  options: z.object({ data: z.record(z.unknown()).optional() }).optional(),
+});
+
 export default async function (server: FastifyInstance) {
+  // Phone + password: the account is confirmed with an SMS code (POST /verify type=sms)
+  async function phoneSignup(req: any, reply: any) {
+    const { project } = req.ctx;
+    const settings = authSettings(project);
+    const parsed = phoneSignupSchema.safeParse(req.body);
+    const phone = parsed.success ? normalizePhone(parsed.data.phone) : null;
+    if (!parsed.success || !phone) {
+      return reply.status(400).send({ error: 'Bad Request', message: 'A valid phone number in international format is required, e.g. +919876543210' });
+    }
+    const blocked = phoneAuthError(project);
+    if (blocked) return reply.status(blocked.status).send({ error: blocked.error, message: blocked.message });
+    if (!settings.enable_signup && req.ctx.role !== 'service_role') {
+      return reply.status(403).send({ error: 'Forbidden', message: 'Signups are disabled for this project' });
+    }
+    if (parsed.data.password.length < settings.password_min_length) {
+      return reply.status(422).send({ error: 'Weak Password', message: `Password must be at least ${settings.password_min_length} characters` });
+    }
+    if (!(await allow(`signup:${project.id}:${req.ip}`, 30, 3600))) {
+      return reply.status(429).send({ error: 'Too Many Requests', message: 'Too many signups from this address. Try again later.' });
+    }
+    const existing = await getUserByPhone(project.id, phone);
+    if (existing?.phone_verified) return reply.status(409).send({ error: 'Conflict', message: 'User already registered' });
+
+    const passwordHash = await argon2.hash(parsed.data.password, ARGON2);
+    const metadata = parsed.data.data ?? parsed.data.options?.data ?? {};
+    // An unconfirmed number can be claimed again (the SMS code proves ownership)
+    const user = await db.begin(async (sql) => {
+      const [u] = existing
+        ? await sql<UserRow[]>`UPDATE auth.users SET raw_user_meta_data = ${sql.json(metadata as any)} WHERE id = ${existing.id} RETURNING *`
+        : await sql<UserRow[]>`
+            INSERT INTO auth.users (project_id, phone, raw_user_meta_data, raw_app_meta_data)
+            VALUES (${project.id}, ${phone}, ${sql.json(metadata as any)}, ${sql.json({ provider: 'phone', providers: ['phone'] })})
+            RETURNING *`;
+      await sql`INSERT INTO auth.user_passwords (user_id, password_hash) VALUES (${u!.id}, ${passwordHash})
+                ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, updated_at = NOW()`;
+      return u!;
+    });
+    const failed = await sendPhoneOtp(req, project, user, phone, 'phone_login');
+    if (failed) return reply.status(failed.status).send({ error: failed.error, message: failed.message });
+    await audit(project.id, 'signup', req, user.id, null, { phone });
+    return reply.status(200).send({ user: publicUser(user), session: null, message: 'Enter the code sent by SMS to confirm your number' });
+  }
+
   server.post('/v1/:projectId/signup', { preValidation: [projectContext] }, async (req, reply) => {
+    if ((req.body as any)?.phone !== undefined && (req.body as any)?.email === undefined) return phoneSignup(req, reply);
     const { project } = req.ctx;
     const settings = authSettings(project);
     const parsed = signupSchema.safeParse(req.body);

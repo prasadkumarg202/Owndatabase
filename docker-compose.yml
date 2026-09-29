@@ -295,6 +295,11 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-noreply@localhost}
+      # Platform-wide SMS fallback for phone OTP (projects can set their own)
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM: ${TWILIO_FROM:-}
+      TWILIO_MESSAGING_SERVICE_SID: ${TWILIO_MESSAGING_SERVICE_SID:-}
       SITE_URL: ${SITE_URL:-http://localhost}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:

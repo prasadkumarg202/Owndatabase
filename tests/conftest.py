@@ -70,3 +70,17 @@ def dev_mailbox():
             return mails[0] if mails else None
         return wait_until(fetch, timeout=timeout, interval=0.5, message=f"email to {to}")
     return read
+
+
+@pytest.fixture(scope="session")
+def dev_sms():
+    """Reads SMS messages captured by the auth service (AUTH_DEV_MAILBOX=true)."""
+    def read(proj: Project, phone: str, timeout=10):
+        def fetch():
+            r = proj.auth("GET", "_dev/sms", params={"phone": phone})
+            if r.status_code == 404:
+                pytest.skip("AUTH_DEV_MAILBOX is not enabled on the auth service")
+            msgs = r.json()["data"]
+            return msgs[0] if msgs else None
+        return wait_until(fetch, timeout=timeout, interval=0.5, message=f"SMS to {phone}")
+    return read

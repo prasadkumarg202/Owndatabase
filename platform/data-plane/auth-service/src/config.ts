@@ -18,6 +18,11 @@ const configSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   SMTP_FROM: z.string().optional(),
+  // Platform-wide SMS fallback for phone OTP (projects can set their own provider)
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_FROM: z.string().optional(),
+  TWILIO_MESSAGING_SERVICE_SID: z.string().optional(),
   SITE_URL: z.string().default('http://localhost'),
   // Public base URL of the auth service (used for OAuth callback URLs)
   AUTH_PUBLIC_URL: z.string().optional(),

@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { db } from './lib/db.js';
 import { redis } from './lib/redis.js';
 import { projectContext } from './middleware/auth.js';
+import { normalizePhone } from './lib/sms.js';
 
 import signupRoutes from './routes/signup.js';
 import loginRoutes from './routes/login.js';
@@ -49,11 +50,17 @@ server.get('/metrics', async (_req, reply) => reply.header('Content-Type', regis
 
 // Development helper: read captured emails (never enable in production)
 if (config.AUTH_DEV_MAILBOX) {
-  server.log.warn('AUTH_DEV_MAILBOX is enabled — outgoing emails are readable over HTTP. Do not use in production.');
+  server.log.warn('AUTH_DEV_MAILBOX is enabled — outgoing emails and SMS are readable over HTTP. Do not use in production.');
   server.get('/v1/:projectId/_dev/emails', { preValidation: [projectContext] }, async (req, reply) => {
     const { to } = req.query as { to?: string };
     if (!to) return reply.status(400).send({ error: 'to is required' });
     const raw = await redis.lrange(`auth:dev-mailbox:${req.ctx.project.id}:${to.toLowerCase()}`, 0, 19);
+    return reply.send({ data: raw.map((r) => JSON.parse(r)) });
+  });
+  server.get('/v1/:projectId/_dev/sms', { preValidation: [projectContext] }, async (req, reply) => {
+    const phone = normalizePhone((req.query as { phone?: string }).phone ?? '');
+    if (!phone) return reply.status(400).send({ error: 'phone is required' });
+    const raw = await redis.lrange(`auth:dev-sms:${req.ctx.project.id}:${phone}`, 0, 19);
     return reply.send({ data: raw.map((r) => JSON.parse(r)) });
   });
 }

@@ -97,6 +97,8 @@ No service exposes ports to the host except via Caddy.
 - CAPTCHA hook for high-risk logins
 - OTP expiry: 10 minutes
 - OTP attempt limit: 5
+- SMS codes: 5 per number per hour, 20 per client IP per hour (SMS pumping)
+- SMS webhook provider: HMAC-signed, private / internal targets refused
 
 ### OAuth Security
 

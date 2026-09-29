@@ -8,6 +8,7 @@ import { db } from './db.js';
 import { redis, redisSub } from './redis.js';
 import { config } from '../config.js';
 import { PlatformAuth, type ProjectInfo } from './platform-auth.js';
+import type { SmsSettings } from './sms.js';
 
 export const platform = new PlatformAuth(db, config.JWT_SECRET, redisSub);
 
@@ -23,12 +24,17 @@ export interface AuthSettings {
   site_url: string;
   redirect_urls: string[];
   providers: Record<string, { enabled?: boolean; client_id?: string; client_secret?: string }>;
+  /** Phone sign-up/sign-in (SMS OTP and phone + password) */
+  enable_phone_auth: boolean;
+  sms_otp_expiry_minutes: number;
+  sms: SmsSettings;
 }
 
 export const DEFAULT_SETTINGS: AuthSettings = {
   enable_signup: true, require_email_confirmation: false, password_min_length: 8, jwt_expiry: 3600,
   enable_magic_link: true, enable_mfa: true, max_failed_logins: 5, lockout_minutes: 15,
   site_url: '', redirect_urls: [], providers: {},
+  enable_phone_auth: false, sms_otp_expiry_minutes: 10, sms: {},
 };
 
 export function authSettings(project: ProjectInfo): AuthSettings {
@@ -42,14 +48,14 @@ export const sha256 = (s: string) => createHash('sha256').update(s).digest('hex'
 export const ARGON2 = { type: 2 /* argon2id */, memoryCost: 19456, timeCost: 2, parallelism: 1 } as const;
 
 export interface UserRow {
-  id: string; email: string | null; phone: string | null; role: string; email_verified: boolean;
+  id: string; email: string | null; phone: string | null; role: string; email_verified: boolean; phone_verified: boolean;
   raw_user_meta_data: Record<string, unknown>; raw_app_meta_data: Record<string, unknown>;
   created_at: Date; last_sign_in_at: Date | null; banned_until: Date | null; confirmed_at: Date | null;
 }
 
 export function publicUser(u: UserRow) {
   return {
-    id: u.id, email: u.email, phone: u.phone, role: u.role, email_verified: u.email_verified,
+    id: u.id, email: u.email, phone: u.phone, role: u.role, email_verified: u.email_verified, phone_verified: u.phone_verified,
     user_metadata: u.raw_user_meta_data ?? {}, app_metadata: u.raw_app_meta_data ?? {},
     created_at: u.created_at, last_sign_in_at: u.last_sign_in_at, confirmed_at: u.confirmed_at,
   };
@@ -124,6 +130,12 @@ export async function getUserById(projectId: string, userId: string): Promise<Us
 export async function getUserByEmail(projectId: string, email: string): Promise<UserRow | null> {
   const [u] = await db<UserRow[]>`
     SELECT * FROM auth.users WHERE project_id = ${projectId} AND lower(email) = lower(${email}) AND deleted_at IS NULL`;
+  return u ?? null;
+}
+
+export async function getUserByPhone(projectId: string, phone: string): Promise<UserRow | null> {
+  const [u] = await db<UserRow[]>`
+    SELECT * FROM auth.users WHERE project_id = ${projectId} AND phone = ${phone} AND deleted_at IS NULL`;
   return u ?? null;
 }
 
