@@ -308,6 +308,16 @@ def test_12_logs_reports_settings(page: Page, dashboard_url, ui_user, state):
     shot(page, "12-settings")
 
 
+def test_12_custom_domain(page: Page, dashboard_url, ui_user, state):
+    login(page, dashboard_url, ui_user)
+    page.goto(f"{state['project_url']}/settings")
+    page.get_by_label("Hostname").fill(f"api-{int(time.time())}.example.com")
+    page.get_by_test_id("add-domain").click()
+    domains = page.get_by_test_id("domains-list")
+    expect(domains).to_contain_text("_odb-challenge.", timeout=10_000)
+    expect(domains).to_contain_text("pending")
+
+
 def test_12a_usage_and_limits(page: Page, dashboard_url, ui_user, state):
     login(page, dashboard_url, ui_user)
     page.goto(f"{state['project_url']}/settings")

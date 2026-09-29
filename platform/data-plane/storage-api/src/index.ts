@@ -43,6 +43,7 @@ import { AuthError, PlatformAuth, type RequestAuth } from './lib/platform-auth.j
 import { createBackend } from './lib/backend.js';
 import { limitOf, QUOTA_ERROR } from './lib/limits.js';
 import { initTracing, shutdownTracing, tracingPlugin } from './lib/tracing.js';
+import { DomainMap } from './lib/domains.js';
 
 const PORT = Number(process.env['PORT'] ?? 3005);
 const DATABASE_URL = process.env['DATABASE_URL']!;
@@ -226,7 +227,9 @@ async function findObject(b: Bucket, path: string) {
 // ── Server ───────────────────────────────────────────────────────────────────
 
 initTracing('storage-api');
-const server = Fastify({ logger: { level: process.env['LOG_LEVEL'] ?? 'info', base: { service: 'storage-api' } }, trustProxy: true, bodyLimit: MAX_UPLOAD_SIZE });
+// custom domains: api.example.com/… → the project's paths (see lib/domains.ts)
+const domains = new DomainMap(db, redisSub);
+const server = Fastify({ logger: { level: process.env['LOG_LEVEL'] ?? 'info', base: { service: 'storage-api' } }, trustProxy: true, rewriteUrl: domains.rewrite, bodyLimit: MAX_UPLOAD_SIZE });
 tracingPlugin(server);
 await server.register(helmet, { contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } });
 await server.register(cors, { origin: true, credentials: true, allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-api-key', 'x-upsert', 'cache-control', 'x-client-info'] });

@@ -4,7 +4,7 @@ import helmet from '@fastify/helmet';
 import { collectDefaultMetrics, register, Counter } from 'prom-client';
 import { config } from './config.js';
 import { db } from './lib/db.js';
-import { redis } from './lib/redis.js';
+import { redis, redisSub } from './lib/redis.js';
 import { projectContext } from './middleware/auth.js';
 import { normalizePhone } from './lib/sms.js';
 
@@ -20,14 +20,18 @@ import mfaRoutes from './routes/mfa.js';
 import oauthRoutes from './routes/oauth.js';
 import adminRoutes from './routes/admin.js';
 import { initTracing, shutdownTracing, tracingPlugin } from './lib/tracing.js';
+import { DomainMap } from './lib/domains.js';
 
 collectDefaultMetrics({ prefix: 'owndatabase_auth_' });
 const requests = new Counter({ name: 'owndatabase_auth_requests_total', help: 'Auth requests', labelNames: ['route', 'status'] });
 
 initTracing('auth-service');
+// custom domains: api.example.com/rest/v1/table → /v1/<project>/table (see lib/domains.ts)
+const domains = new DomainMap(db, redisSub);
 const server = Fastify({
   logger: { level: config.LOG_LEVEL, base: { service: 'auth-service' } },
   trustProxy: true,
+  rewriteUrl: domains.rewrite,
 });
 tracingPlugin(server);
 

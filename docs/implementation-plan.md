@@ -272,7 +272,7 @@
 - [x] Per-key rate limits and IP allowlists (all data-plane services; dashboard + API)
 - [x] Postgres-native queues (odb_queue: send/read/archive/pop with visibility timeouts; RPC + dashboard) — [queues.md](queues.md)
 - [x] OpenTelemetry traces (all services → Tempo, `traceparent` continued, `x-trace-id` on responses) — [tracing.md](tracing.md)
-- [ ] Custom domains
+- [x] Custom domains (DNS TXT verification, on-demand TLS, Supabase-style paths on the domain) — [custom-domains.md](custom-domains.md)
 - [ ] Branching
 - [ ] JavaScript SDK
 - [ ] GraphQL

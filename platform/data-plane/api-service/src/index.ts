@@ -16,14 +16,18 @@ import restRoutes from './routes/rest.js';
 import rpcRoutes from './routes/rpc.js';
 import functionRoutes from './routes/functions.js';
 import { initTracing, shutdownTracing, tracingPlugin } from './lib/tracing.js';
+import { DomainMap } from './lib/domains.js';
 
 collectDefaultMetrics({ prefix: 'owndatabase_api_' });
 const requests = new Counter({ name: 'owndatabase_api_requests_total', help: 'Data API requests', labelNames: ['project_id', 'method', 'status'] });
 
 initTracing('api-service');
+// custom domains: api.example.com/rest/v1/table → /v1/<project>/table (see lib/domains.ts)
+const domains = new DomainMap(db, redisSub);
 const server = Fastify({
   logger: { level: config.LOG_LEVEL, base: { service: 'api-service' } },
   trustProxy: true,
+  rewriteUrl: domains.rewrite,
   bodyLimit: 10 * 1024 * 1024,
 });
 tracingPlugin(server);

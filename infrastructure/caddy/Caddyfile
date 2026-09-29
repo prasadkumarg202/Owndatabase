@@ -13,13 +13,18 @@
 
     # Uncomment for production HTTPS with Let's Encrypt:
     # acme_ca https://acme-v02.api.letsencrypt.org/directory
+
+    # Custom domains (docs/custom-domains.md): certificates are issued on the
+    # first HTTPS request, only for hostnames the control API reports verified.
+    on_demand_tls {
+        ask http://control-api:3000/api/internal/domains/check
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Local development: HTTP only
+# Routes, shared by every site below
 # ─────────────────────────────────────────────────────────────────────────────
-
-:80 {
+(routes) {
     # Security headers
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -127,4 +132,21 @@
             header_up X-Forwarded-Proto {scheme}
         }
     }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Plain HTTP (local development, and any host on :80)
+# ─────────────────────────────────────────────────────────────────────────────
+:80 {
+    import routes
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HTTPS for verified custom domains (api.example.com → one project)
+# ─────────────────────────────────────────────────────────────────────────────
+https:// {
+    tls {
+        on_demand
+    }
+    import routes
 }

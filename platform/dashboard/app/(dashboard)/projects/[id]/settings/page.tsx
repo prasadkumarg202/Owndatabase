@@ -16,6 +16,53 @@ import { DataTable } from '@/components/ui/DataTable';
 import { CopyField } from '@/components/ui/CopyField';
 import { useToast } from '@/components/ui/Toast';
 
+function Domains({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [host, setHost] = useState('');
+  const list = useQuery({ queryKey: ['domains', id], queryFn: () => api.get(`/projects/${id}/domains`).then((r) => r.data as any[]) });
+  const refresh = () => qc.invalidateQueries({ queryKey: ['domains', id] });
+  const add = useMutation({ mutationFn: () => api.post(`/projects/${id}/domains`, { hostname: host }), onSuccess: () => { setHost(''); refresh(); } });
+  const verify = useMutation({
+    mutationFn: (d: string) => api.post(`/projects/${id}/domains/${d}/verify`),
+    onSuccess: (r) => { r.status === 'verified' ? toast.success(`${r.hostname} verified`) : toast.error(r.last_error ?? 'Not verified yet'); refresh(); },
+  });
+  const remove = useMutation({ mutationFn: (d: string) => api.delete(`/projects/${id}/domains/${d}`), onSuccess: () => { toast.success('Domain removed'); refresh(); } });
+  return (
+    <Card title="Custom domains" description="Serve this project's APIs from your own hostname, e.g. api.example.com/rest/v1/… — HTTPS certificates are issued automatically once verified.">
+      <form className="mb-4 flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
+        <div className="w-80"><Input label="Hostname" value={host} onChange={(e) => setHost(e.target.value)} placeholder="api.example.com" /></div>
+        <Button type="submit" loading={add.isPending} disabled={!host} data-testid="add-domain">Add domain</Button>
+      </form>
+      <ErrorBox error={add.error} />
+      <div className="space-y-4" data-testid="domains-list">
+        {list.data?.length === 0 && <p className="text-sm text-gray-500">No custom domains.</p>}
+        {list.data?.map((d) => (
+          <div key={d.id} className="rounded-md border border-gray-200 p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2"><span className="font-medium">{d.hostname}</span><Badge tone={d.status === 'verified' ? 'green' : 'yellow'}>{d.status}</Badge></div>
+              <div className="flex gap-1">
+                {d.status !== 'verified' && <Button size="sm" variant="secondary" onClick={() => verify.mutate(d.id)} loading={verify.isPending}>Verify</Button>}
+                <Button size="sm" variant="ghost" onClick={() => { if (confirm(`Remove ${d.hostname}?`)) remove.mutate(d.id); }}>Remove</Button>
+              </div>
+            </div>
+            {d.status !== 'verified' && (
+              <div className="mt-2 text-xs">
+                <p className="mb-1 text-gray-600">Create these DNS records, then click Verify:</p>
+                <table className="w-full font-mono"><tbody>
+                  {d.dns_records.map((r: any) => <tr key={r.type}><td className="pr-3">{r.type}</td><td className="pr-3">{r.name}</td><td className="break-all">{r.value}</td></tr>)}
+                </tbody></table>
+                {d.last_error && <p className="mt-1 text-amber-700">{d.last_error}</p>}
+              </div>
+            )}
+            {d.status === 'verified' && <div className="mt-2"><CopyField label="REST URL" value={d.endpoints.rest_url} /></div>}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function General({ id }: { id: string }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -38,6 +85,7 @@ function General({ id }: { id: string }) {
         </div>
         <Button className="mt-3" onClick={() => save.mutate()} loading={save.isPending}>Save</Button>
       </Card>
+      <Domains id={id} />
       <Card title="Danger zone" className="border-red-200">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-3">
           <div><p className="text-sm font-medium">{p.status === 'paused' ? 'Resume project' : 'Pause project'}</p><p className="text-xs text-gray-500">Paused projects reject all REST, auth, storage and realtime requests.</p></div>
