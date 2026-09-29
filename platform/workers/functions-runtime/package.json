@@ -1,0 +1,10 @@
+{
+  "name": "@owndatabase/functions-runtime",
+  "version": "0.1.0",
+  "description": "Isolated runtime for OwnDatabase functions (no dependencies)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}

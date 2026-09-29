@@ -19,6 +19,11 @@ const configSchema = z.object({
   RATE_LIMIT_SERVICE: z.coerce.number().default(6000),
   FUNCTIONS_ENABLED: z.string().default('true').transform((v) => v !== 'false'),
   FUNCTIONS_MAX_CONCURRENCY: z.coerce.number().default(8),
+  // Isolated functions runtime (platform/workers/functions-runtime)
+  FUNCTIONS_RUNTIME_URL: z.string().default('http://functions-runtime:3010'),
+  FUNCTIONS_RUNTIME_TOKEN: z.string().default(''),
+  // How functions reach the platform APIs (the gateway, on the functions network)
+  FUNCTIONS_GATEWAY_URL: z.string().default('http://gateway'),
 });
 
 const parsed = configSchema.safeParse(process.env);

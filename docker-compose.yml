@@ -34,7 +34,10 @@ services:
     environment:
       - DOMAIN=${DOMAIN:-localhost}
     networks:
-      - owndatabase
+      owndatabase:
+      # functions call the platform APIs through the gateway only
+      functions_egress:
+        aliases: [gateway]
     depends_on:
       - control-api
       - dashboard
@@ -338,10 +341,14 @@ services:
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}
       PUBLIC_URL: ${SITE_URL:-http://localhost}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      FUNCTIONS_RUNTIME_URL: http://functions-runtime:3010
+      FUNCTIONS_RUNTIME_TOKEN: ${FUNCTIONS_RUNTIME_TOKEN:?FUNCTIONS_RUNTIME_TOKEN is required (make generate-secrets)}
+      FUNCTIONS_GATEWAY_URL: http://gateway
     volumes:
       - ./platform/data-plane/api-service/src:/app/src
     networks:
       - owndatabase
+      - functions_rpc
     depends_on:
       postgres:
         condition: service_healthy
@@ -355,6 +362,39 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # FUNCTIONS RUNTIME — isolated execution of user functions
+  # No access to the platform network: api-service calls it on functions_rpc
+  # (internal); functions get the internet and the gateway via functions_egress.
+  # ─────────────────────────────────────────────────────────────────────────
+  functions-runtime:
+    build:
+      context: ./platform/workers/functions-runtime
+    container_name: owndatabase-functions-runtime
+    restart: unless-stopped
+    environment:
+      FUNCTIONS_RUNTIME_TOKEN: ${FUNCTIONS_RUNTIME_TOKEN:?FUNCTIONS_RUNTIME_TOKEN is required (make generate-secrets)}
+      FUNCTIONS_MAX_CONCURRENCY: ${FUNCTIONS_MAX_CONCURRENCY:-8}
+      FUNCTIONS_GATEWAY_HOST: gateway
+    cap_drop: [ALL]
+    # NET_ADMIN only for the firewall in entrypoint.sh (dropped before the runtime starts);
+    # SETUID/SETGID/CHOWN/KILL to run and stop each invocation as its project's uid
+    cap_add: [NET_ADMIN, SETUID, SETGID, CHOWN, KILL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /work:size=256m,mode=0711
+      - /tmp:size=16m
+    pids_limit: 512
+    mem_limit: ${FUNCTIONS_MEMORY_LIMIT:-2g}
+    cpus: ${FUNCTIONS_CPUS:-2}
+    networks:
+      - functions_rpc
+      - functions_egress
+    depends_on:
+      - caddy
 
   # ─────────────────────────────────────────────────────────────────────────
   # REALTIME SERVICE — WebSocket + WAL-based change detection
@@ -711,6 +751,15 @@ networks:
   owndatabase:
     driver: bridge
     name: owndatabase
+  # api-service <-> functions-runtime only; no route out
+  functions_rpc:
+    driver: bridge
+    name: owndatabase_functions_rpc
+    internal: true
+  # functions-runtime -> internet and the gateway
+  functions_egress:
+    driver: bridge
+    name: owndatabase_functions_egress
 
 # ─────────────────────────────────────────────────────────────────────────────
 # VOLUMES

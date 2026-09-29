@@ -225,7 +225,7 @@ Database isolation is available for compliance requirements.
 | OAuth secrets | Client secrets |
 | Signing keys | JWT private keys |
 | Storage credentials | S3 access keys |
-| Function secrets | Per-function environment |
+| Function secrets | Passed per invocation as `req.env` (not process env), to the isolated functions runtime — see [functions.md](functions.md) |
 
 ### Secret Rotation
 

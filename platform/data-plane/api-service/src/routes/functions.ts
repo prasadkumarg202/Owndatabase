@@ -4,16 +4,13 @@
  *   ANY /functions/v1/:projectId/:slug[/*]
  *
  * Code is deployed through the control API (control_plane.functions) and
- * executed per request in a separate Node.js process (see functions/runner.mjs).
+ * executed by the isolated functions runtime (platform/workers/functions-runtime):
+ * a separate container with no access to the platform network, one process per
+ * invocation under a per-project uid.
  * The caller must send the project API key; functions with verify_jwt=true
  * also need a signed-in user token or a service_role key.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { spawn, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createDecipheriv } from 'node:crypto';
 import { Counter, Histogram } from 'prom-client';
 import { db } from '../lib/db.js';
@@ -24,17 +21,6 @@ import { redis } from '../lib/schema-cache.js';
 
 const invocations = new Counter({ name: 'owndatabase_functions_invocations_total', help: 'Function invocations', labelNames: ['project_id', 'status'] });
 const durations = new Histogram({ name: 'owndatabase_functions_duration_seconds', help: 'Function duration', buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30] });
-
-const WORK_DIR = join(tmpdir(), 'odb-functions');
-mkdirSync(WORK_DIR, { recursive: true });
-const RUNNER = join(WORK_DIR, 'runner.mjs');
-const here = dirname(fileURLToPath(import.meta.url));
-const runnerSrc = [join(here, '../functions/runner.mjs'), join(here, '../../src/functions/runner.mjs')].find(existsSync);
-if (runnerSrc) copyFileSync(runnerSrc, RUNNER);
-
-// Detect the Node permission-model flag (`--permission` on Node ≥ 22, `--experimental-permission` on 20)
-const PERMISSION_FLAG = ['--permission', '--experimental-permission'].find((flag) =>
-  spawnSync(process.execPath, [flag, '-e', '0'], { stdio: 'ignore' }).status === 0) ?? null;
 
 let running = 0;
 
@@ -60,48 +46,26 @@ async function projectSecrets(projectId: string): Promise<Record<string, string>
 export interface RunResult { status: number; headers: Record<string, string>; body: string; logs: string[]; error?: string; timedOut?: boolean; durationMs: number }
 
 export async function runFunction(fn: any, request: Record<string, unknown>, env: Record<string, string>): Promise<RunResult> {
-  const codeFile = join(WORK_DIR, `${fn.id}-v${fn.version}.mjs`);
-  if (!existsSync(codeFile)) writeFileSync(codeFile, fn.code, { mode: 0o444 });
-
-  const args = [`--max-old-space-size=${fn.memory_mb}`];
-  if (PERMISSION_FLAG) args.push(PERMISSION_FLAG, `--allow-fs-read=${WORK_DIR}/*`);
-  args.push(RUNNER);
-
   const started = Date.now();
-  return new Promise<RunResult>((resolve) => {
-    const child = spawn(process.execPath, args, {
-      env: { PATH: process.env['PATH'] ?? '/usr/bin:/bin', NODE_ENV: 'production', TZ: 'UTC' },
-      stdio: ['pipe', 'pipe', 'pipe'],
+  try {
+    const res = await fetch(`${config.FUNCTIONS_RUNTIME_URL.replace(/\/$/, '')}/run`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${config.FUNCTIONS_RUNTIME_TOKEN}` },
+      body: JSON.stringify({
+        project_id: fn.project_id, function_id: fn.id, version: fn.version, code: fn.code,
+        memory_mb: fn.memory_mb, timeout_ms: fn.timeout_ms, request, env,
+      }),
+      // the runtime enforces the function timeout; this only guards against a hung runtime
+      signal: AbortSignal.timeout(Number(fn.timeout_ms) + 10_000),
     });
-    let out = '', err = '';
-    let done = false;
-    const finish = (r: Omit<RunResult, 'durationMs'>) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve({ ...r, durationMs: Date.now() - started });
-    };
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      finish({ status: 504, headers: {}, body: JSON.stringify({ error: 'Function timed out', timeout_ms: fn.timeout_ms }), logs: [], timedOut: true, error: `Timed out after ${fn.timeout_ms}ms` });
-    }, fn.timeout_ms);
-    child.stdout.on('data', (d) => { out += d; if (out.length > 6_000_000) child.kill('SIGKILL'); });
-    child.stderr.on('data', (d) => { err += d; });
-    child.on('close', (code) => {
-      const idx = out.lastIndexOf('__ODB_RESULT__');
-      if (idx === -1) {
-        return finish({ status: 500, headers: {}, body: JSON.stringify({ error: 'Function crashed' }), logs: [], error: (err || `exit code ${code}`).slice(0, 4000) });
-      }
-      try {
-        const r = JSON.parse(out.slice(idx + 14).trim());
-        if (!r.ok) return finish({ status: 500, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ error: 'Function threw an error', message: String(r.error).split('\n')[0] }), logs: r.logs ?? [], error: r.error });
-        finish({ status: r.status ?? 200, headers: r.headers ?? {}, body: r.body ?? '', logs: r.logs ?? [] });
-      } catch (e) {
-        finish({ status: 500, headers: {}, body: JSON.stringify({ error: 'Invalid function output' }), logs: [], error: String(e) });
-      }
-    });
-    child.stdin.end(JSON.stringify({ codeFile, request, env }));
-  });
+    if (res.status === 503) {
+      return { status: 503, headers: { 'retry-after': '1' }, body: JSON.stringify({ error: 'Busy', message: 'Too many concurrent function invocations' }), logs: [], error: 'runtime busy', durationMs: Date.now() - started };
+    }
+    if (!res.ok) throw new Error(`functions runtime returned ${res.status}`);
+    return (await res.json()) as RunResult;
+  } catch (err) {
+    return { status: 502, headers: {}, body: JSON.stringify({ error: 'Functions runtime unavailable' }), logs: [], error: String(err), durationMs: Date.now() - started };
+  }
 }
 
 async function logInvocation(fn: any, r: RunResult) {
@@ -157,12 +121,17 @@ export default async function functionRoutes(server: FastifyInstance) {
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.headers)) if (!HOP_HEADERS.has(k) && typeof v === 'string') headers[k] = v;
     const rest = (req.params as Record<string, string>)['*'] ?? '';
+    // Functions reach the platform through the gateway (the only internal address they may call)
+    const gateway = config.FUNCTIONS_GATEWAY_URL.replace(/\/$/, '');
     const env = {
       ...(await projectSecrets(projectId)),
       ODB_PROJECT_ID: projectId,
-      ODB_URL: config.PUBLIC_URL,
-      ODB_REST_URL: `${config.PUBLIC_URL.replace(/\/$/, '')}/rest/v1/${projectId}`,
-      ODB_AUTH_URL: `${config.PUBLIC_URL.replace(/\/$/, '')}/auth/v1/${projectId}`,
+      ODB_URL: gateway,
+      ODB_PUBLIC_URL: config.PUBLIC_URL,
+      ODB_REST_URL: `${gateway}/rest/v1/${projectId}`,
+      ODB_AUTH_URL: `${gateway}/auth/v1/${projectId}`,
+      ODB_STORAGE_URL: `${gateway}/storage/v1/${projectId}`,
+      ODB_FUNCTIONS_URL: `${gateway}/functions/v1/${projectId}`,
     };
     const request = {
       method: req.method,

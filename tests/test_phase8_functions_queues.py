@@ -83,6 +83,67 @@ def test_function_logs_and_versions(fns):
     assert fns.owner.post(f"/projects/{fns.id}/functions", json={"slug": "bad", "code": "console.log(1)"}).status_code == 400
 
 
+PROBE = """
+export default async function (req) {
+  const fs = await import('node:fs');
+  const tryFetch = async (url) => {
+    try { const r = await fetch(url, { signal: AbortSignal.timeout(3000) }); return 'reached:' + r.status; }
+    catch { return 'blocked'; }
+  };
+  const tryIt = (f) => { try { f(); return 'allowed'; } catch { return 'blocked'; } };
+  const out = { uid: process.getuid(), env: Object.keys(process.env).sort() };
+  for (const [k, url] of Object.entries({
+    redis: 'http://redis:6379/', postgres: 'http://postgres:5432/', controlApi: 'http://control-api:3000/api/health',
+    apiService: 'http://api-service:3003/health', runtimeSelf: 'http://127.0.0.1:3010/health',
+    metadata: 'http://169.254.169.254/latest/meta-data/', hostGateway: 'http://172.17.0.1/',
+  })) out[k] = await tryFetch(url);
+  out.gateway = await tryFetch(req.env.ODB_URL + '/api/health');
+  out.listWork = tryIt(() => fs.readdirSync('/work'));
+  out.readPasswd = tryIt(() => fs.readFileSync('/etc/passwd'));
+  out.readOther = req.query.other ? tryIt(() => fs.readFileSync(req.query.other)) : null;
+  out.worker = await (async () => { try { const { Worker } = await import('node:worker_threads'); new Worker('0', { eval: true }); return 'allowed'; } catch { return 'blocked'; } })();
+  return out;
+}
+"""
+
+
+def runtime_uid(project_id: str) -> int:
+    """Mirror of uidFor() in platform/workers/functions-runtime/server.mjs."""
+    import hashlib
+    return 20000 + int.from_bytes(hashlib.sha256(project_id.encode()).digest()[:4], "big") % 10000
+
+
+def test_function_isolation(fns, owner):
+    from odb import create_project
+    other = create_project(owner, "Isolation neighbour")
+    r = other.owner.post(f"/projects/{other.id}/functions", json={"slug": "probe", "code": PROBE, "verify_jwt": False, "timeout_ms": 30000})
+    assert r.status_code == 201, r.text
+    # a real code file of the first project, which the neighbour must not be able to read
+    hello = next(f for f in fns.owner.get(f"/projects/{fns.id}/functions").json()["data"] if f["slug"] == "hello")
+    target = f"/work/{runtime_uid(fns.id)}/{hello['id']}-v{hello['version']}.mjs"
+    requests.get(fn_url(fns, "hello"), headers={"apikey": fns.anon_key}, timeout=20)  # make sure it exists on disk
+
+    r = requests.get(fn_url(other, "probe"), params={"other": target}, headers={"apikey": other.anon_key}, timeout=60)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["uid"] == runtime_uid(other.id) and out["uid"] != runtime_uid(fns.id)
+    for k in ["redis", "postgres", "controlApi", "apiService", "runtimeSelf", "metadata", "hostGateway"]:
+        assert out[k] == "blocked", (k, out)
+    assert out["gateway"] == "reached:200", out
+    assert out["listWork"] == out["readPasswd"] == out["readOther"] == out["worker"] == "blocked", out
+    assert not any(k in out["env"] for k in ["DATABASE_URL", "REDIS_URL", "JWT_SECRET", "FUNCTIONS_RUNTIME_TOKEN"]), out["env"]
+
+
+def test_function_memory_limit(fns):
+    code = "export default async () => { const a = []; for (;;) a.push(new Array(1e6).fill(Math.random())); }"
+    r = fns.owner.post(f"/projects/{fns.id}/functions", json={"slug": "hog", "code": code, "verify_jwt": False, "memory_mb": 64, "timeout_ms": 20000})
+    assert r.status_code == 201, r.text
+    r = requests.get(fn_url(fns, "hog"), headers={"apikey": fns.anon_key}, timeout=60)
+    assert r.status_code == 500 and r.json()["error"] == "Function ran out of memory", r.text
+    # the runtime survives
+    assert requests.get(fn_url(fns, "resp"), headers={"apikey": fns.anon_key}, timeout=20).status_code == 201
+
+
 @pytest.mark.slow
 def test_async_invocation_via_queue(fns):
     r = fns.owner.post(f"/projects/{fns.id}/functions/resp/invoke-async", json={})

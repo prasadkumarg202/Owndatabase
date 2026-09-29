@@ -192,7 +192,7 @@
 
 ### Deliverables
 
-- [~] Function definitions — run in a time/memory-limited Node child process with the Node permission model, **not** Docker isolation. Treat functions as trusted code.
+- [x] Function definitions and isolation. Functions run in a separate runtime container with no access to the platform network. Each project gets its own uid, and a firewall blocks private and internal addresses. The Node permission model, heap limits and timeouts also apply. See [functions.md](functions.md).
 - [x] Function deployment
 - [x] Function logs
 - [x] BullMQ queue abstraction

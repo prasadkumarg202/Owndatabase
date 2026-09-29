@@ -1,10 +1,10 @@
 // OwnDatabase function runner.
 //
-// Runs ONE invocation of user code in a separate Node.js process started with
-// the Node permission model (no file writes, no child processes, no worker
-// threads, no native addons) and a stripped environment. Network access is
-// allowed so functions can call APIs. This is process-level isolation with a
-// hard timeout and memory cap — not a hardened multi-tenant sandbox.
+// Runs ONE invocation of user code. Started by server.mjs as a per-project uid
+// with the Node permission model (read access to this file and the function's
+// own code only; no file writes, child processes, worker threads or native
+// addons), a heap limit, a hard timeout and a stripped environment. Network
+// egress is limited by the container firewall (see entrypoint.sh).
 //
 // Protocol: stdin = JSON { codeFile, request, env }, stdout = JSON result on the
 // last line prefixed with "__ODB_RESULT__".
