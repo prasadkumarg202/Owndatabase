@@ -10,7 +10,9 @@ for svc in platform/data-plane/auth-service platform/data-plane/api-service plat
 done
 # the queue worker reads secrets through the vault client
 cp platform/shared/vault-client.ts platform/workers/queue-worker/src/vault-client.ts
-# the control plane only shares the tracing module
+cp platform/shared/log-drain.ts platform/workers/queue-worker/src/log-drain.ts
+# the control plane shares the tracing and log-drain modules
 mkdir -p platform/control-plane/src/lib
 cp platform/shared/tracing.ts platform/control-plane/src/lib/tracing.ts
+cp platform/shared/log-drain.ts platform/control-plane/src/lib/log-drain.ts
 echo "✓ shared files synced"

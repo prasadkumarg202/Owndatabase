@@ -20,7 +20,7 @@ import { redis } from '../lib/redis.js';
 const POLICY: Record<string, readonly string[]> = {
   'auth-service': ['auth', 'mfa_key'],
   'api-service': ['function_secrets'],
-  'queue-worker': ['db_password', 'db_webhook'],
+  'queue-worker': ['db_password', 'db_webhook', 'log_drain'],
 };
 
 function serviceTokens(): { service: string; token: Buffer }[] {
@@ -42,7 +42,7 @@ function callingService(request: FastifyRequest): string | null {
 
 const revealSchema = z.object({
   project_id: z.string().uuid(),
-  kind: z.enum(['auth', 'mfa_key', 'function_secrets', 'db_password', 'db_webhook']),
+  kind: z.enum(['auth', 'mfa_key', 'function_secrets', 'db_password', 'db_webhook', 'log_drain']),
   id: z.string().uuid().optional(),
 });
 
@@ -71,6 +71,10 @@ export const vaultInternalRoutes: FastifyPluginAsync = async (server: FastifyIns
           request.log.error({ err, projectId: pid, secret: r['name'] }, 'vault: cannot decrypt function secret');
         }
       }
+    } else if (kind === 'log_drain') {
+      if (!id) return reply.status(400).send({ error: 'Validation Error', message: 'id is required for log_drain' });
+      const [d] = await db`SELECT secret_sealed FROM control_plane.log_drains WHERE id = ${id} AND project_id = ${pid}`;
+      if (d?.['secret_sealed']) secrets['secret'] = await open(pid, `log_drain:${id}`, d['secret_sealed'] as string);
     } else if (kind === 'db_webhook') {
       if (!id) return reply.status(400).send({ error: 'Validation Error', message: 'id is required for db_webhook' });
       const [h] = await db`SELECT secret_encrypted FROM control_plane.db_webhooks WHERE id = ${id} AND project_id = ${pid}`;

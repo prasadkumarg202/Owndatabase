@@ -25,6 +25,7 @@ import { collectDefaultMetrics, register, Counter } from 'prom-client';
 import { assertPublicUrl } from './net-guard.js';
 import { startDbWebhookDispatcher } from './db-webhooks.js';
 import { VaultClient } from './vault-client.js';
+import { startLogDrains } from './log-drains.js';
 
 const logger = pino({ level: process.env['LOG_LEVEL'] ?? 'info', base: { service: 'queue-worker' } });
 const REDIS_URL = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
@@ -151,6 +152,7 @@ worker.on('failed', async (job, err) => {
 worker.on('error', (err) => logger.error({ err: err.message }, 'Worker error'));
 
 const stopDbWebhooks = startDbWebhookDispatcher(sql, logger, vault);
+const stopLogDrains = startLogDrains(sql, logger, vault, process.env['LOKI_URL'] || undefined);
 
 http.createServer(async (req, res) => {
   if (req.url === '/health') {
@@ -164,6 +166,6 @@ http.createServer(async (req, res) => {
   res.writeHead(404).end();
 }).listen(PORT, () => logger.info({ port: PORT }, 'Queue worker started'));
 
-const shutdown = async () => { stopDbWebhooks(); await worker.close(); await sql.end({ timeout: 2 }); connection.disconnect(); redis.disconnect(); process.exit(0); };
+const shutdown = async () => { stopDbWebhooks(); stopLogDrains(); await worker.close(); await sql.end({ timeout: 2 }); connection.disconnect(); redis.disconnect(); process.exit(0); };
 process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());

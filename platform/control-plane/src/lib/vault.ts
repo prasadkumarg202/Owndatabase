@@ -211,6 +211,14 @@ async function resealProject(sql: Tx, projectId: string, onlyUnsealed: boolean):
     await sql`UPDATE control_plane.secrets SET value_encrypted = ${await sealBytes(projectId, `function_secret:${r['name']}`, plain, sql)} WHERE id = ${r['id'] as string}`;
     n++;
   }
+  // log drain secrets are always sealed: re-seal them on data-key rotation
+  if (!onlyUnsealed) {
+    for (const r of await sql`SELECT id, secret_sealed FROM control_plane.log_drains WHERE project_id = ${projectId} AND secret_sealed IS NOT NULL`) {
+      const name = `log_drain:${r['id']}`;
+      await sql`UPDATE control_plane.log_drains SET secret_sealed = ${await seal(projectId, name, await open(projectId, name, r['secret_sealed'] as string, sql), sql)} WHERE id = ${r['id'] as string}`;
+      n++;
+    }
+  }
   for (const r of await sql`SELECT id, secret_encrypted FROM control_plane.db_webhooks WHERE project_id = ${projectId} AND secret_encrypted IS NOT NULL`) {
     const v = r['secret_encrypted'] as Buffer;
     if (onlyUnsealed && isSealed(v)) continue;

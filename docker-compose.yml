@@ -218,6 +218,8 @@ services:
       ALERT_SLACK_WEBHOOK_URL: ${ALERT_SLACK_WEBHOOK_URL:+set}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:+set}
       LOKI_URL: http://loki:3100
+      # development only: lets log drains / tests target private addresses and http
+      WEBHOOK_ALLOW_PRIVATE: ${WEBHOOK_ALLOW_PRIVATE:-false}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-10}
       PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
@@ -588,6 +590,7 @@ services:
       # no encryption key here: secrets come from the vault (docs/vault.md)
       VAULT_TOKEN: ${VAULT_TOKEN_QUEUE}
       API_SERVICE_URL: http://api-service:3003
+      LOKI_URL: http://loki:3100   # log drains read platform logs (docs/log-drains.md)
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
