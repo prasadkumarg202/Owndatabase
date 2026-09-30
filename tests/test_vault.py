@@ -113,8 +113,9 @@ def test_services_read_only_what_their_policy_allows(proj):
     for c in ("owndatabase-api", "owndatabase-queue-worker", "owndatabase-auth"):
         env = docker("exec", c, "printenv")
         assert "VAULT_MASTER_KEYS" not in env and "VAULT_SERVICE_TOKENS" not in env
-    for c in ("owndatabase-api", "owndatabase-queue-worker"):
-        assert "SECRET_ENCRYPTION_KEY" not in docker("exec", c, "printenv")
+    # only the control API holds the platform's encryption key
+    for c in ("owndatabase-api", "owndatabase-queue-worker", "owndatabase-auth", "owndatabase-backup-worker"):
+        assert "SECRET_ENCRYPTION_KEY" not in docker("exec", c, "printenv"), c
 
 
 def test_secrets_work_end_to_end(proj):
@@ -153,7 +154,7 @@ def test_rotation_needs_admin_role(owner, proj):
 def test_admin_status_and_master_key_rotation(platform_admin):
     s = platform_admin.get("/admin/vault").json()
     assert s["active_master_key"] and s["active_master_key"] in s["configured_master_keys"]
-    assert s["not_in_vault_format"] == {"function_secrets": 0, "webhook_secrets": 0, "db_passwords": 0}
+    assert s["not_in_vault_format"] == {"function_secrets": 0, "webhook_secrets": 0, "db_passwords": 0, "mfa_seeds": 0}
     r = platform_admin.post("/admin/vault/rotate-master-key")
     assert r.status_code == 200 and r.json()["rewrapped"] == 0  # already all under the active key
     audit = platform_admin.get("/admin/vault/audit?limit=20").json()["data"]

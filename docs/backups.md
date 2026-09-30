@@ -13,8 +13,8 @@ queued by `cron-scheduler`).
 Each backup:
 
 1. runs `pg_dump -Fc -n project_<slug>`;
-2. is encrypted with AES-256-GCM using `BACKUP_ENCRYPTION_KEY`
-   (falls back to `SECRET_ENCRYPTION_KEY`);
+2. is encrypted with AES-256-GCM using `BACKUP_ENCRYPTION_KEY` (its own key, required;
+   older backups are restored with any key in `BACKUP_DECRYPT_KEYS`);
 3. gets a SHA-256 checksum;
 4. is verified: `pg_restore --list`, then a **test restore into a temporary
    database**, which is dropped afterwards.

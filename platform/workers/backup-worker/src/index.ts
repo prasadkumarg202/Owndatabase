@@ -31,12 +31,16 @@ const logger = pino({ level: process.env['LOG_LEVEL'] ?? 'info', base: { service
 const DATABASE_URL = process.env['DATABASE_URL'] ?? '';
 const REDIS_URL = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
 const BACKUP_DIR = process.env['BACKUP_DIR'] ?? '/backups';
-const KEY_HEX = process.env['BACKUP_ENCRYPTION_KEY'] || process.env['SECRET_ENCRYPTION_KEY'] || '';
+// New backups are encrypted with BACKUP_ENCRYPTION_KEY (its own key, not the platform's secret key);
+// older backups also decrypt with any of BACKUP_DECRYPT_KEYS (comma-separated), e.g. the key used before.
+const isKey = (k: string) => /^[0-9a-f]{64}$/i.test(k);
+const KEY_HEX = process.env['BACKUP_ENCRYPTION_KEY'] ?? '';
+const DECRYPT_KEYS = [KEY_HEX, ...(process.env['BACKUP_DECRYPT_KEYS'] ?? '').split(',').map((k) => k.trim())].filter(isKey);
 const VERIFY_RESTORE = (process.env['BACKUP_VERIFY_RESTORE'] ?? 'true') === 'true';
 const PG_BIN = process.env['PG_BIN_DIR'] ? process.env['PG_BIN_DIR'].replace(/\/$/, '') + '/' : '';
 const PORT = Number(process.env['PORT'] ?? 3008);
 
-if (!/^[0-9a-f]{64}$/i.test(KEY_HEX)) logger.warn('No 64-hex BACKUP_ENCRYPTION_KEY / SECRET_ENCRYPTION_KEY — backups will NOT be encrypted');
+if (!isKey(KEY_HEX)) logger.warn('No 64-hex BACKUP_ENCRYPTION_KEY — backups will NOT be encrypted');
 
 const sql = postgres(DATABASE_URL, { max: 3, onnotice: () => {} });
 const redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 3 });
@@ -98,9 +102,17 @@ async function decryptFile(src: string, dst: string) {
   const tag = Buffer.alloc(16);
   await fh.read(tag, 0, 16, size - 16);
   await fh.close();
-  const d = createDecipheriv('aes-256-gcm', Buffer.from(KEY_HEX, 'hex'), head.subarray(6, 18));
-  d.setAuthTag(tag);
-  await pipeline(createReadStream(src, { start: 18, end: size - 17 }), d, createWriteStream(dst));
+  if (!DECRYPT_KEYS.length) throw new Error('The backup is encrypted but no BACKUP_ENCRYPTION_KEY / BACKUP_DECRYPT_KEYS is set');
+  let last: unknown;
+  for (const k of DECRYPT_KEYS) {
+    try {
+      const d = createDecipheriv('aes-256-gcm', Buffer.from(k, 'hex'), head.subarray(6, 18));
+      d.setAuthTag(tag);
+      await pipeline(createReadStream(src, { start: 18, end: size - 17 }), d, createWriteStream(dst));
+      return;
+    } catch (err) { last = err; }  // authentication failed: try the next key
+  }
+  throw new Error(`The backup could not be decrypted with any configured key (${(last as Error)?.message ?? 'unknown'})`);
 }
 
 async function sha256File(path: string) {

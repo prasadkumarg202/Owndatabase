@@ -5,7 +5,6 @@ const configSchema = z.object({
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
   JWT_SECRET: z.string().min(32),
-  SECRET_ENCRYPTION_KEY: z.string().regex(/^[0-9a-f]{64}$/i).optional(),
   JWT_EXPIRES_IN: z.coerce.number().default(3600),
   REFRESH_TOKEN_EXPIRES_IN: z.coerce.number().default(604800),
   // Platform-wide OAuth fallbacks (projects can set their own in Auth settings)

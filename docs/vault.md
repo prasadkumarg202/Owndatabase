@@ -72,14 +72,20 @@ On start, control-api moves plaintext secrets in project settings, and values en
 pre-vault format, into the vault. The first start on this installation sealed 721 secrets.
 `GET /api/admin/vault` reports anything still not in vault format.
 
-## Not in the vault (yet)
+## MFA seeds
 
-- **MFA seeds.** auth-service still encrypts them with `SECRET_ENCRYPTION_KEY` (a per-user hot path).
-- **Backup files.** backup-worker encrypts them with `BACKUP_ENCRYPTION_KEY`, falling back to
-  `SECRET_ENCRYPTION_KEY`. Set `BACKUP_ENCRYPTION_KEY` and keep it off the server.
-- **Platform-wide credentials** (Stripe, Razorpay, Twilio defaults, SMTP) are read from the
-  environment.
-- **Job payloads.** Don't put secrets in queue job payloads such as `webhook.dispatch` `secret`;
-  use function secrets.
-- Services still connect to Postgres as the superuser, so a compromised service can read any
-  table. That's the "PostgreSQL isolation" work item.
+TOTP seeds are checked on every MFA sign-in, so the auth service asks the vault for the project's
+**MFA key** (`kind: mfa_key`; the key is stored sealed in the project's metadata). Each seed is
+sealed with that key as `mfa1:…`, bound to the project and user. The control API converted
+existing seeds on start.
+
+## Keys held by other components
+
+- Only the control API has `SECRET_ENCRYPTION_KEY`, which it uses for platform-user MFA and legacy
+  values.
+- **Backup files** have their own key, `BACKUP_ENCRYPTION_KEY`. `BACKUP_DECRYPT_KEYS` lists older keys,
+  so older backups can still be restored. Remove them once those backups have expired. Keep both
+  off the server.
+- **Platform-wide credentials** (Stripe, Razorpay, Twilio defaults, SMTP) are read from the environment.
+- **Job payloads**: don't put secrets in queue job payloads (for example the `secret` of
+  `webhook.dispatch`); use function secrets.

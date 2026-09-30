@@ -13,12 +13,12 @@ import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { db } from '../lib/db.js';
 import { ADMIN_ROLES, audit, requirePlatformAdmin, requireProject, userId } from '../lib/access.js';
-import { open, openAuthSettings, rotateMasterKey, rotateProjectKey, vaultAudit, vaultStatus } from '../lib/vault.js';
+import { open, openAuthSettings, projectMfaKey, rotateMasterKey, rotateProjectKey, vaultAudit, vaultStatus } from '../lib/vault.js';
 import { redis } from '../lib/redis.js';
 
 /** Which kinds of secret each service may read. */
 const POLICY: Record<string, readonly string[]> = {
-  'auth-service': ['auth'],
+  'auth-service': ['auth', 'mfa_key'],
   'api-service': ['function_secrets'],
   'queue-worker': ['db_password', 'db_webhook'],
 };
@@ -42,7 +42,7 @@ function callingService(request: FastifyRequest): string | null {
 
 const revealSchema = z.object({
   project_id: z.string().uuid(),
-  kind: z.enum(['auth', 'function_secrets', 'db_password', 'db_webhook']),
+  kind: z.enum(['auth', 'mfa_key', 'function_secrets', 'db_password', 'db_webhook']),
   id: z.string().uuid().optional(),
 });
 
@@ -62,6 +62,7 @@ export const vaultInternalRoutes: FastifyPluginAsync = async (server: FastifyIns
 
     let secrets: Record<string, string> = {};
     if (kind === 'auth') secrets = await openAuthSettings(pid, p['auth'] ?? {});
+    else if (kind === 'mfa_key') secrets['mfa_key'] = await projectMfaKey(pid);
     else if (kind === 'db_password') {
       if (p['pw']) secrets['db_password'] = await open(pid, 'db_password', p['pw'] as string);
     } else if (kind === 'function_secrets') {

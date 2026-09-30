@@ -12,7 +12,7 @@ import { db } from '../lib/db.js';
 import { userContext } from '../middleware/auth.js';
 import { audit, authSettings, getUserById, issueSession } from '../lib/session.js';
 import { generateTotpSecret, otpauthUri, verifyTotp } from '../lib/totp.js';
-import { seal, unseal } from '../lib/crypto.js';
+import { sealMfa, unsealMfa } from '../lib/crypto.js';
 
 export default async function (server: FastifyInstance) {
   server.get('/v1/:projectId/factors', { preValidation: [userContext] }, async (req, reply) => {
@@ -37,7 +37,7 @@ export default async function (server: FastifyInstance) {
     const user = await getUserById(project.id, userId!);
     const [factor] = await db`
       INSERT INTO auth.mfa_factors (user_id, type, status, friendly_name, secret)
-      VALUES (${userId!}, 'totp', 'unverified', ${body.data.friendly_name ?? 'Authenticator app'}, ${seal(secret)})
+      VALUES (${userId!}, 'totp', 'unverified', ${body.data.friendly_name ?? 'Authenticator app'}, ${await sealMfa(project.id, userId!, secret)})
       RETURNING id, type AS factor_type, status, friendly_name`;
     const uri = otpauthUri(secret, user?.email ?? userId!, body.data.issuer ?? project.slug);
     await audit(project.id, 'mfa_enroll_started', req, userId);
@@ -54,7 +54,7 @@ export default async function (server: FastifyInstance) {
     const [factor] = await db`SELECT * FROM auth.mfa_factors WHERE id = ${factorId} AND user_id = ${userId!}`;
     if (!factor) return reply.status(404).send({ error: 'Not Found', message: 'Factor not found' });
 
-    const step = verifyTotp(unseal(factor['secret'] as string), body.data.code);
+    const step = verifyTotp(await unsealMfa(project.id, userId!, factor['secret'] as string), body.data.code);
     const lastStep = factor['last_used_step'] === null ? -1 : Number(factor['last_used_step']);
     if (step === null || step <= lastStep) {
       await audit(project.id, 'mfa_verify_failed', req, userId);

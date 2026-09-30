@@ -248,7 +248,7 @@ Each service connects with its own least-privilege login (migration 023; passwor
 
 | Role | Service | Can use |
 |---|---|---|
-| `odb_auth` | auth-service | `auth.*`; reads projects / API keys / custom domains |
+| `odb_auth` | auth-service | `auth.*`; reads projects / API keys / custom domains (MFA seeds are sealed with the project's vault MFA key) |
 | `odb_storage` | storage-api | `storage.*`; same reads |
 | `odb_api` | api-service, pgbouncer | functions + function logs; `SET ROLE` into project API roles |
 | `odb_realtime` | realtime-service | `SET ROLE` into project API roles |

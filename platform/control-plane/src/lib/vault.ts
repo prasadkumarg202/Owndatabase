@@ -194,9 +194,10 @@ async function resealProject(sql: Tx, projectId: string, onlyUnsealed: boolean):
     if (changed) await sql`UPDATE control_plane.projects SET settings = jsonb_set(settings, '{auth}', ${sql.json(settings.auth)}) WHERE id = ${projectId}`;
   }
   const meta = (p['metadata'] ?? {}) as any;
-  if (typeof meta.db_password_enc === 'string' && !(onlyUnsealed && isSealed(meta.db_password_enc))) {
-    const plain = await open(projectId, 'db_password', meta.db_password_enc, sql);
-    await sql`UPDATE control_plane.projects SET metadata = metadata || ${sql.json({ db_password_enc: await seal(projectId, 'db_password', plain, sql) })} WHERE id = ${projectId}`;
+  for (const [field, name] of [['db_password_enc', 'db_password'], ['mfa_key_enc', 'auth.mfa_key']] as const) {
+    if (typeof meta[field] !== 'string' || (onlyUnsealed && isSealed(meta[field]))) continue;
+    const plain = await open(projectId, name, meta[field], sql);
+    await sql`UPDATE control_plane.projects SET metadata = metadata || ${sql.json({ [field]: await seal(projectId, name, plain, sql) })} WHERE id = ${projectId}`;
     n++;
   }
   for (const r of await sql`SELECT id, name, value_encrypted FROM control_plane.secrets WHERE project_id = ${projectId}`) {
@@ -220,6 +221,51 @@ async function resealProject(sql: Tx, projectId: string, onlyUnsealed: boolean):
     }
     await sql`UPDATE control_plane.db_webhooks SET secret_encrypted = ${await sealBytes(projectId, `db_webhook:${r['id']}`, plain, sql)} WHERE id = ${r['id'] as string}`;
     n++;
+  }
+  return n;
+}
+
+// ── MFA seeds ──────────────────────────────────────────────────────────────────
+// TOTP seeds are checked on every MFA sign-in, so the auth service gets a per-project MFA key from the
+// vault (kind 'mfa_key') and seals each seed with it, bound to the project and user:
+// "mfa1:<base64 iv|tag|ciphertext>", AAD = project + user.
+
+/** The project's MFA key (hex), created on first use; stored sealed in projects.metadata.mfa_key_enc. */
+export async function projectMfaKey(projectId: string, sql: Tx = db): Promise<string> {
+  const read = async () => (await sql`SELECT metadata->>'mfa_key_enc' AS k FROM control_plane.projects WHERE id = ${projectId}`)[0]?.['k'] as string | null | undefined;
+  let stored = await read();
+  if (!stored) {
+    const fresh = await seal(projectId, 'auth.mfa_key', randomBytes(32).toString('hex'), sql);
+    await sql`UPDATE control_plane.projects SET metadata = metadata || ${sql.json({ mfa_key_enc: fresh })}
+              WHERE id = ${projectId} AND NOT (metadata ? 'mfa_key_enc')`;
+    stored = await read();
+    if (!stored) throw new Error('Project not found');
+  }
+  return open(projectId, 'auth.mfa_key', stored, sql);
+}
+
+const mfaAad = (projectId: string, userId: string) => `odb-mfa\0${projectId}\0${userId}`;
+export function mfaSeal(keyHex: string, projectId: string, userId: string, plain: string): string {
+  return `mfa1:${gcmSeal(Buffer.from(keyHex, 'hex'), Buffer.from(plain, 'utf8'), mfaAad(projectId, userId)).toString('base64')}`;
+}
+
+/** Converts seeds sealed with SECRET_ENCRYPTION_KEY ("gcm:" / "plain:", before the vault) to mfa1. */
+async function migrateMfaSeeds(): Promise<number> {
+  const rows = await db`
+    SELECT f.id, f.user_id, f.secret, u.project_id FROM auth.mfa_factors f JOIN auth.users u ON u.id = f.user_id
+    WHERE f.secret LIKE 'gcm:%' OR f.secret LIKE 'plain:%'`;
+  const keys = new Map<string, string>();
+  let n = 0;
+  for (const r of rows) {
+    const pid = r['project_id'] as string, uid = r['user_id'] as string, s = r['secret'] as string;
+    try {
+      const plain = s.startsWith('plain:') ? s.slice(6) : gcmOpen(Buffer.from(config.secretEncryptionKey, 'hex'), Buffer.from(s.slice(4), 'base64')).toString('utf8');
+      if (!keys.has(pid)) keys.set(pid, await projectMfaKey(pid));
+      await db`UPDATE auth.mfa_factors SET secret = ${mfaSeal(keys.get(pid)!, pid, uid, plain)} WHERE id = ${r['id'] as string} AND secret = ${s}`;
+      n++;
+    } catch (err) {
+      logger.error({ err, factor: r['id'] }, 'vault: cannot convert an MFA seed, left unchanged');
+    }
   }
   return n;
 }
@@ -267,7 +313,7 @@ export async function migrateAll(): Promise<void> {
       SELECT DISTINCT p.id FROM control_plane.projects p
       LEFT JOIN control_plane.secrets s ON s.project_id = p.id
       LEFT JOIN control_plane.db_webhooks w ON w.project_id = p.id AND w.secret_encrypted IS NOT NULL
-      WHERE p.settings ? 'auth' OR p.metadata ? 'db_password_enc' OR s.id IS NOT NULL OR w.id IS NOT NULL`;
+      WHERE p.settings ? 'auth' OR p.metadata ? 'db_password_enc' OR p.metadata ? 'mfa_key_enc' OR s.id IS NOT NULL OR w.id IS NOT NULL`;
     let sealed = 0;
     for (const p of projects) {
       sealed += await db.begin(async (sql) => {
@@ -275,8 +321,9 @@ export async function migrateAll(): Promise<void> {
         return resealProject(sql, p['id'] as string, true);
       });
     }
-    if (sealed) await vaultAudit('system', 'migrate', null, { sealed, projects: projects.length });
-    logger.info({ rewrapped, sealed, kek: activeKekId() }, 'Vault ready');
+    const mfa = await migrateMfaSeeds();
+    if (sealed || mfa) await vaultAudit('system', 'migrate', null, { sealed, mfa_seeds: mfa, projects: projects.length });
+    logger.info({ rewrapped, sealed, mfa_seeds: mfa, kek: activeKekId() }, 'Vault ready');
   } catch (err) {
     logger.error({ err }, 'Vault migration failed');
   }
@@ -288,7 +335,8 @@ export async function vaultStatus() {
     SELECT
       (SELECT count(*)::int FROM control_plane.secrets WHERE substring(value_encrypted from 1 for 9) <> convert_to('vault:v1:', 'UTF8')) AS function_secrets,
       (SELECT count(*)::int FROM control_plane.db_webhooks WHERE secret_encrypted IS NOT NULL AND substring(secret_encrypted from 1 for 9) <> convert_to('vault:v1:', 'UTF8')) AS webhook_secrets,
-      (SELECT count(*)::int FROM control_plane.projects WHERE metadata ? 'db_password_enc' AND metadata->>'db_password_enc' NOT LIKE 'vault:v1:%') AS db_passwords`;
+      (SELECT count(*)::int FROM control_plane.projects WHERE metadata ? 'db_password_enc' AND metadata->>'db_password_enc' NOT LIKE 'vault:v1:%') AS db_passwords,
+      (SELECT count(*)::int FROM auth.mfa_factors WHERE secret NOT LIKE 'mfa1:%') AS mfa_seeds`;
   return {
     active_master_key: activeKekId(),
     configured_master_keys: keyring.map((k) => k.id),

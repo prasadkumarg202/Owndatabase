@@ -301,7 +301,7 @@ services:
       DATABASE_URL: postgresql://odb_auth:${DB_PASSWORD_AUTH}@postgres:5432/${POSTGRES_DB:-owndatabase}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
-      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}  # MFA seeds only
+      # no encryption key: MFA seeds use the project MFA key from the vault (docs/vault.md)
       VAULT_TOKEN: ${VAULT_TOKEN_AUTH}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600}
       REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN:-604800}
@@ -647,8 +647,9 @@ services:
       PORT: 3008
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}
-      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-}
+      # its own key (docs/backups.md); BACKUP_DECRYPT_KEYS = older keys, for restoring older backups
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:?BACKUP_ENCRYPTION_KEY is required (openssl rand -hex 32)}
+      BACKUP_DECRYPT_KEYS: ${BACKUP_DECRYPT_KEYS:-}
       BACKUP_DIR: /backups
       BACKUP_VERIFY_RESTORE: ${BACKUP_VERIFY_RESTORE:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}
