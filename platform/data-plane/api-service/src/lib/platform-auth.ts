@@ -77,6 +77,26 @@ export class PlatformAuth {
   private projectCache = new Map<string, { value: ProjectInfo | null; exp: number }>();
   private secret: Uint8Array;
   private changeListeners: ((projectId: string) => void)[] = [];
+  // failed authentications per client IP and minute (in memory, per instance): unknown API keys miss the
+  // cache and cost a database round trip each, so a flood of made-up keys is cut off early
+  private authFailures = new Map<string, { n: number; win: number }>();
+  private static readonly MAX_AUTH_FAILURES = Number(process.env['AUTH_FAILURES_PER_MINUTE'] ?? 100);
+  private static readonly MAX_CACHE = 100_000;
+
+  private tooManyFailures(ip?: string): boolean {
+    if (!ip) return false;
+    const e = this.authFailures.get(ip);
+    return !!e && e.win === Math.floor(Date.now() / 60000) && e.n >= PlatformAuth.MAX_AUTH_FAILURES;
+  }
+
+  private noteFailure(ip?: string) {
+    if (!ip) return;
+    if (this.authFailures.size > PlatformAuth.MAX_CACHE) this.authFailures.clear();
+    const win = Math.floor(Date.now() / 60000);
+    const e = this.authFailures.get(ip);
+    if (!e || e.win !== win) this.authFailures.set(ip, { n: 1, win });
+    else e.n++;
+  }
 
   /** Called when a project's settings or secrets change (odb:project-changed). */
   onProjectChanged(fn: (projectId: string) => void) { this.changeListeners.push(fn); }
@@ -129,6 +149,7 @@ export class PlatformAuth {
     } as KeyInfo : null;
     // never cache a key past its expiry (rotated keys expire after their grace period)
     const expiresAt = row?.['expires_at'] ? new Date(row['expires_at'] as string).getTime() : Infinity;
+    if (this.keyCache.size > PlatformAuth.MAX_CACHE) this.keyCache.clear();  // bounded: made-up keys are cached too
     this.keyCache.set(hash, { value, exp: Math.min(Date.now() + TTL_MS, expiresAt) });
     return value;
   }
@@ -216,8 +237,13 @@ export class PlatformAuth {
     }
     let key: KeyInfo | null = null;
     if (rawKey) {
+      // only lookups that would reach the database are refused: keys already known keep working
+      const cached = this.keyCache.get(PlatformAuth.hashKey(rawKey));
+      if (!(cached && cached.exp > Date.now() && cached.value) && this.tooManyFailures(opts.ip)) {
+        throw new AuthError(429, 'Too many invalid API keys from this address. Try again in a minute.');
+      }
       key = await this.getKey(rawKey);
-      if (!key || key.project_id !== projectId) throw new AuthError(401, 'Invalid API key');
+      if (!key || key.project_id !== projectId) { this.noteFailure(opts.ip); throw new AuthError(401, 'Invalid API key'); }
       // fail closed: a key with an allowlist needs the caller's IP
       if (key.allow && !ipAllowed(key.allow, opts.ip)) throw new AuthError(403, `This API key may not be used from ${opts.ip ?? 'an unknown address'}`);
     } else if (opts.requireKey !== false) {

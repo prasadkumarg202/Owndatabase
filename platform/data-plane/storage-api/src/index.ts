@@ -109,14 +109,37 @@ async function getBucket(projectId: string, name: string): Promise<Bucket> {
   return b;
 }
 
+// Requests per minute per API key + client (or per signed-in user), as in the REST API; fails open without Redis
+const RATE_LIMITS = {
+  anon: Number(process.env['STORAGE_RATE_LIMIT_ANON'] ?? 600),
+  authenticated: Number(process.env['STORAGE_RATE_LIMIT_AUTHENTICATED'] ?? 1200),
+  service_role: Number(process.env['STORAGE_RATE_LIMIT_SERVICE'] ?? 6000),
+};
+
+async function rateLimit(req: FastifyRequest, a: RequestAuth) {
+  if (String(a.key.id).startsWith('platform:')) return;  // dashboard users
+  const limit = RATE_LIMITS[a.role as keyof typeof RATE_LIMITS] ?? RATE_LIMITS.anon;
+  const who = a.userId ? `u:${a.userId}` : `k:${a.key.id}:${req.ip}`;
+  const key = `storage-rl:${a.project.id}:${who}:${Math.floor(Date.now() / 60000)}`;
+  let n: number;
+  try {
+    n = await redis.incr(key);
+    if (n === 1) await redis.expire(key, 61);
+  } catch { return; }
+  if (n > limit) throw new HttpError(429, `Rate limit of ${limit} requests/minute exceeded`);
+}
+
 async function ctx(req: FastifyRequest): Promise<RequestAuth> {
   const { projectId } = req.params as { projectId: string };
+  let a: RequestAuth;
   try {
-    return await platform.authenticate(projectId, req.headers as any, req.query as any, { allowPlatformUser: true, ip: req.ip });
+    a = await platform.authenticate(projectId, req.headers as any, req.query as any, { allowPlatformUser: true, ip: req.ip });
   } catch (err) {
     if (err instanceof AuthError) throw new HttpError(err.statusCode, err.message);
     throw err;
   }
+  await rateLimit(req, a);
+  return a;
 }
 
 function requireService(a: RequestAuth) {

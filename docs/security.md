@@ -150,6 +150,9 @@ Three key types with separate permissions:
 | REST + RPC, anon | 600 / min per key + client IP (`RATE_LIMIT_ANON`) |
 | REST + RPC, signed-in user | 1200 / min per user (`RATE_LIMIT_AUTHENTICATED`) |
 | REST + RPC, service_role | 6000 / min per key + client IP (`RATE_LIMIT_SERVICE`) |
+| Storage, anon / user / service_role | 600 / 1200 / 6000 per min (`STORAGE_RATE_LIMIT_ANON` / `_AUTHENTICATED` / `_SERVICE`) |
+| Unknown API keys | 100 / min per client IP (`AUTH_FAILURES_PER_MINUTE`); after that only keys already in use are accepted from that address for the rest of the minute |
+| Realtime | 50 messages / s per connection (`REALTIME_MAX_MESSAGES_PER_SECOND`); connections per project in [limits.md](limits.md) |
 | Per API key (optional) | `rate_limit_per_minute` across all clients |
 | Per project (optional) | daily quotas — see [limits.md](limits.md) |
 
