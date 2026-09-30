@@ -88,6 +88,79 @@ function Members({ orgId }: { orgId: string }) {
   );
 }
 
+const money = (minor: number, currency: string) =>
+  new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase() }).format(minor / 100);
+
+function Billing({ orgId }: { orgId: string }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const plans = useQuery({ queryKey: ['plans'], queryFn: () => api.get('/billing/plans') });
+  const b = useQuery({ queryKey: ['billing', orgId], queryFn: () => api.get(`/organizations/${orgId}/billing`), enabled: !!plans.data?.enabled, retry: false });
+  const refresh = () => qc.invalidateQueries({ queryKey: ['billing', orgId] });
+  const subscribe = useMutation({
+    mutationFn: (planId: string) => api.post(`/organizations/${orgId}/billing/subscribe`, { plan_id: planId }),
+    onSuccess: (r) => {
+      refresh();
+      if (r.payment_url) window.open(r.payment_url, '_blank', 'noopener');
+      toast.success(r.status === 'payment_required' ? `Invoice ${r.invoice.number} created${r.payment_url ? '' : ' — the platform operator will confirm payment'}` : r.status === 'scheduled' ? 'Change takes effect at the end of the period' : 'Plan changed');
+    },
+    onError: (e) => toast.error(e),
+  });
+  const cancel = useMutation({ mutationFn: () => api.post(`/organizations/${orgId}/billing/cancel`), onSuccess: () => { toast.success('Your plan ends at the end of the period'); refresh(); }, onError: (e) => toast.error(e) });
+  if (!plans.data?.enabled) return null;
+  if (b.error) return null;   // not an owner / admin / billing member
+  const d = b.data;
+  if (!d) return <Card title="Billing"><p className="text-sm text-gray-500">Loading…</p></Card>;
+  const inc = d.included ?? {};
+  const rows: [string, number, number | undefined, (n: number) => string][] = [
+    ['API requests', d.usage.api_requests, inc.api_requests, (n) => n.toLocaleString()],
+    ['Function invocations', d.usage.function_invocations, inc.function_invocations, (n) => n.toLocaleString()],
+    ['Storage (peak)', d.usage.storage_gb, inc.storage_gb, (n) => `${n.toFixed(2)} GB`],
+    ['Database (peak)', d.usage.database_gb, inc.database_gb, (n) => `${n.toFixed(2)} GB`],
+  ];
+  const estimate = d.estimated_lines.reduce((s: number, l: any) => s + l.amount, 0);
+  return (
+    <Card title="Billing" description={`Current period ${d.period.start} – ${d.period.end}`}>
+      <div className="space-y-5" data-testid="billing">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm">Plan: <strong>{d.plan.name}</strong></span>
+          <Badge tone={d.subscription.status === 'active' ? 'green' : 'red'}>{d.subscription.status}</Badge>
+          {d.subscription.pending_plan_id && <Badge tone="yellow">upgrade to {d.subscription.pending_plan_id} awaiting payment</Badge>}
+          {d.subscription.cancel_at_period_end && <Badge tone="yellow">ends {d.subscription.current_period_end}</Badge>}
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          {plans.data.data.map((p: any) => (
+            <div key={p.id} className={`rounded-md border p-3 ${p.id === d.plan.id ? 'border-blue-400 bg-blue-50' : 'border-gray-200'}`}>
+              <div className="flex items-baseline justify-between"><span className="font-medium">{p.name}</span><span className="text-sm">{p.price_monthly ? `${money(p.price_monthly, p.currency)}/mo` : 'Free'}</span></div>
+              <p className="mt-1 text-xs text-gray-500">{p.max_projects ? `${p.max_projects} projects` : 'Unlimited projects'}</p>
+              {p.id !== d.plan.id && <Button size="sm" className="mt-2" variant="secondary" loading={subscribe.isPending} onClick={() => subscribe.mutate(p.id)} data-testid={`choose-${p.id}`}>Choose {p.name}</Button>}
+            </div>
+          ))}
+        </div>
+        <table className="w-full text-sm">
+          <tbody>
+            {rows.map(([label, used, included, fmt]) => (
+              <tr key={label} className="border-b border-gray-100"><td className="py-1.5 text-gray-600">{label}</td>
+                <td className="py-1.5 text-right">{fmt(used)}{included !== undefined ? <span className="text-gray-400"> / {fmt(included)} included</span> : null}</td></tr>
+            ))}
+            <tr><td className="py-1.5 font-medium">Estimated this period</td><td className="py-1.5 text-right font-medium">{money(estimate, d.plan.currency)}</td></tr>
+          </tbody>
+        </table>
+        {d.plan.price_monthly > 0 && !d.subscription.cancel_at_period_end && (
+          <Button size="sm" variant="ghost" onClick={() => { if (confirm('Move to the Free plan at the end of this period?')) cancel.mutate(); }}>Cancel plan</Button>
+        )}
+        <DataTable testId="invoices-table" data={d.invoices} empty="No invoices yet" columns={[
+          { key: 'number', label: 'Invoice' },
+          { key: 'period_start', label: 'Period', render: (i: any) => `${String(i.period_start).slice(0, 10)} – ${String(i.period_end).slice(0, 10)}` },
+          { key: 'total', label: 'Total', render: (i: any) => money(i.total, i.currency) },
+          { key: 'status', label: 'Status', render: (i: any) => <Badge tone={i.status === 'paid' ? 'green' : i.status === 'open' ? 'yellow' : 'gray'}>{i.status}</Badge> },
+          { key: 'x', label: '', render: (i: any) => i.status === 'open' && i.payment_url && <a className="text-xs text-blue-600 hover:underline" href={i.payment_url} target="_blank" rel="noopener noreferrer">Pay</a> },
+        ]} />
+      </div>
+    </Card>
+  );
+}
+
 export default function OrganizationsPage() {
   const orgs = useQuery({ queryKey: ['orgs'], queryFn: () => api.get('/organizations').then((r) => r.data as any[]) });
   const [orgId, setOrgId] = useState<string | null>(null);
@@ -98,7 +171,7 @@ export default function OrganizationsPage() {
         actions={orgs.data && orgs.data.length > 1
           ? <div className="w-64"><Select aria-label="Organization" value={orgId ?? ''} onChange={(e) => setOrgId(e.target.value)} options={orgs.data.map((o) => ({ value: o.id, label: `${o.name} (${o.member_role})` }))} /></div>
           : undefined} />
-      {orgId ? <Members key={orgId} orgId={orgId} /> : <p className="text-sm text-gray-500">Loading…</p>}
+      {orgId ? <div className="space-y-6"><Members key={orgId} orgId={orgId} /><Billing key={`b-${orgId}`} orgId={orgId} /></div> : <p className="text-sm text-gray-500">Loading…</p>}
     </div>
   );
 }

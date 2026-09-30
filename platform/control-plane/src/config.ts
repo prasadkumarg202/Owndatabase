@@ -52,6 +52,16 @@ const configSchema = z.object({
     }
   }),
 
+  // Billing (docs/billing.md): off unless BILLING_ENABLED=true
+  billingEnabled: z.string().optional().transform((v) => v === 'true'),
+  billingProvider: z.enum(['manual', 'stripe', 'razorpay']).default('manual'),
+  stripeSecretKey: z.string().optional(),
+  stripeWebhookSecret: z.string().optional(),
+  razorpayKeyId: z.string().optional(),
+  razorpayKeySecret: z.string().optional(),
+  razorpayWebhookSecret: z.string().optional(),
+  billingGraceDays: z.coerce.number().int().min(0).default(14),
+
   // Observability backends (optional)
   prometheusUrl: z.string().optional(),
   lokiUrl: z.string().optional(),
@@ -88,6 +98,14 @@ function loadConfig() {
     platformAdminEmails: e['PLATFORM_ADMIN_EMAILS'],
     publicUrl: e['PUBLIC_URL'] ?? e['SITE_URL'],
     defaultProjectLimits: e['DEFAULT_PROJECT_LIMITS'],
+    billingEnabled: e['BILLING_ENABLED'],
+    billingProvider: e['BILLING_PROVIDER'] || undefined,
+    stripeSecretKey: e['STRIPE_SECRET_KEY'] || undefined,
+    stripeWebhookSecret: e['STRIPE_WEBHOOK_SECRET'] || undefined,
+    razorpayKeyId: e['RAZORPAY_KEY_ID'] || undefined,
+    razorpayKeySecret: e['RAZORPAY_KEY_SECRET'] || undefined,
+    razorpayWebhookSecret: e['RAZORPAY_WEBHOOK_SECRET'] || undefined,
+    billingGraceDays: e['BILLING_GRACE_DAYS'],
     prometheusUrl: e['PROMETHEUS_URL'] || undefined,
     lokiUrl: e['LOKI_URL'] || undefined,
     sqlStatementTimeoutMs: e['SQL_STATEMENT_TIMEOUT_MS'],

@@ -24,6 +24,7 @@ import { db } from '../lib/db.js';
 import { ADMIN_ROLES, audit, requireProject } from '../lib/access.js';
 import { getProjectDbPassword, projectConnectionUrl, projectDb } from '../lib/project-db.js';
 import { pgDump, toMigration } from './migrations.js';
+import { BRANCH_REQUEST_TOKEN } from '../lib/billing.js';
 
 const s = (summary: string) => ({ schema: { tags: ['branches'], summary, security: [{ bearerAuth: [] }] } });
 const nameSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,19}$/, 'Branch names use a-z, 0-9 and -, up to 20 characters');
@@ -59,7 +60,7 @@ function psql(url: string, input: string): Promise<void> {
 }
 
 async function inject(server: FastifyInstance, request: FastifyRequest, method: 'POST' | 'DELETE', url: string, payload?: unknown) {
-  const r = await server.inject({ method, url, payload: payload as any, headers: { authorization: String(request.headers.authorization ?? '') } });
+  const r = await server.inject({ method, url, payload: payload as any, headers: { authorization: String(request.headers.authorization ?? ''), 'x-odb-branch': BRANCH_REQUEST_TOKEN } });
   return { status: r.statusCode, body: r.json() as Record<string, any> };
 }
 

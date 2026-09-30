@@ -214,6 +214,14 @@ services:
       PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
       # Usage limits for new projects (JSON), see docs/limits.md
       DEFAULT_PROJECT_LIMITS: ${DEFAULT_PROJECT_LIMITS:-{}}
+      # Billing (docs/billing.md): default off; platform admins can switch it at runtime
+      BILLING_ENABLED: ${BILLING_ENABLED:-false}
+      BILLING_PROVIDER: ${BILLING_PROVIDER:-manual}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
     volumes:
       - ./platform/control-plane/src:/app/src
       - ./platform/migrations:/app/migrations:ro

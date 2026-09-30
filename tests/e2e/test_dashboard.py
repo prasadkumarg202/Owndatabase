@@ -356,6 +356,28 @@ def test_12b_invite_to_organization(page: Page, dashboard_url, ui_user):
     expect(page.get_by_test_id("accept-invite")).to_have_count(0)
 
 
+def test_12c_billing(page: Page, dashboard_url, ui_user):
+    import os
+    import requests
+    email, password = os.environ.get("ODB_ADMIN_EMAIL"), os.environ.get("ODB_ADMIN_PASSWORD")
+    if not (email and password):
+        pytest.skip("set ODB_ADMIN_EMAIL / ODB_ADMIN_PASSWORD to switch billing on")
+    api = f"{dashboard_url}/api"
+    token = requests.post(f"{api}/auth/login", json={"email": email, "password": password}, timeout=15).json()["access_token"]
+    toggle = lambda on: requests.put(f"{api}/admin/billing/settings", json={"enabled": on}, headers={"Authorization": f"Bearer {token}"}, timeout=15)
+    assert toggle(True).status_code == 200
+    try:
+        time.sleep(5.5)   # the switch is cached briefly
+        login(page, dashboard_url, ui_user)
+        page.goto(f"{dashboard_url}/organizations")
+        billing = page.get_by_test_id("billing")
+        expect(billing).to_contain_text("Plan: Free", timeout=15_000)
+        expect(page.get_by_test_id("choose-pro")).to_be_visible()
+        shot(page, "12c-billing")
+    finally:
+        toggle(False)
+
+
 def test_13_sign_out(page: Page, dashboard_url, ui_user):
     login(page, dashboard_url, ui_user)
     page.get_by_test_id("user-menu").click()

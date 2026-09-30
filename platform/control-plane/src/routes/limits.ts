@@ -135,7 +135,8 @@ export const limitRoutes: FastifyPluginAsync = async (server: FastifyInstance) =
       else if (v !== undefined) merged[k] = v;
     }
     const limits = cleanLimits(merged);
-    await db`UPDATE control_plane.projects SET settings = jsonb_set(COALESCE(settings, '{}'), '{limits}', ${db.json(limits as any)}) WHERE id = ${id}`;
+    // hand-set limits are kept when the organization's plan changes (billing)
+    await db`UPDATE control_plane.projects SET settings = jsonb_set(jsonb_set(COALESCE(settings, '{}'), '{limits}', ${db.json(limits as any)}), '{limits_custom}', 'true') WHERE id = ${id}`;
     await redis.publish('odb:project-changed', id).catch(() => {});
     await audit(request, 'project.limits_updated', { type: 'project', id, projectId: id }, { limits });
     const readOnly = await checkDatabaseLimit(id);

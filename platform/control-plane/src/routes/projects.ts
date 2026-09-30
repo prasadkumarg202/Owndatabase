@@ -24,6 +24,7 @@ import { dropProjectSchema, generateApiKey } from '../lib/provision.js';
 import { closeProjectDb, ensureProjectProvisioned, getProjectDbPassword, projectConnectionUrl } from '../lib/project-db.js';
 import { redis } from '../lib/redis.js';
 import { cleanLimits } from './limits.js';
+import { BRANCH_REQUEST_TOKEN, planLimitsForNewProject, projectCapError } from '../lib/billing.js';
 
 const REGIONS = ['local', 'in-south-1', 'us-east-1', 'eu-west-1'] as const;
 
@@ -168,6 +169,11 @@ export const projectRoutes: FastifyPluginAsync = async (server: FastifyInstance)
     const [existing] = await db`
       SELECT id FROM control_plane.projects WHERE organization_id = ${organization_id} AND slug = ${slug}`;
     if (existing) return reply.status(409).send({ error: 'Conflict', message: 'A project with this slug already exists' });
+    // billing (when enabled): the plan's project cap; branches do not count
+    const isBranch = request.headers['x-odb-branch'] === BRANCH_REQUEST_TOKEN;
+    const cap = isBranch ? null : await projectCapError(organization_id);
+    if (cap) return reply.status(402).send({ error: 'Plan Limit', message: cap });
+    const planLimits = await planLimitsForNewProject(organization_id);
 
     // Schema names are global in the shared database, so add a short suffix
     // when another organization already uses the same slug.
@@ -179,7 +185,7 @@ export const projectRoutes: FastifyPluginAsync = async (server: FastifyInstance)
     const [project] = await db`
       INSERT INTO control_plane.projects (organization_id, name, slug, status, region, db_name, db_schema, settings)
       VALUES (${organization_id}, ${name}, ${slug}, 'creating', ${region}, current_database(), ${dbSchema},
-              ${db.json({ auth: DEFAULT_AUTH_CONFIG, limits: cleanLimits(config.defaultProjectLimits) } as any)})
+              ${db.json({ auth: DEFAULT_AUTH_CONFIG, limits: cleanLimits(planLimits ?? config.defaultProjectLimits) } as any)})
       RETURNING *
     `;
     const projectId = project!['id'] as string;
