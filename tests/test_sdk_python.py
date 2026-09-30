@@ -92,7 +92,10 @@ def test_realtime_postgres_changes(proj):
         payload = await asyncio.wait_for(got.get(), 15)
         await db.remove_all_channels()
         return payload
-    payload = asyncio.run(run())
+    # in its own thread: Playwright's sync API may already run an event loop on this one
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(1) as ex:
+        payload = ex.submit(lambda: asyncio.run(run())).result(timeout=60)
     data = payload.get("data", payload)
     record = data.get("record") or data.get("new")
     assert record["name"] == "rt-py"
