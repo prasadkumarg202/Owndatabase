@@ -176,6 +176,19 @@ function Settings({ projectId }: { projectId: string }) {
           </>)}
         </div>
       </Card>
+      <Card title="Bot protection (CAPTCHA)" description="Require a Cloudflare Turnstile or hCaptcha token on sign-up, password sign-in, magic links / OTP and password recovery. Add the provider's widget to your forms and send its token as captcha_token.">
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={!!cfg.captcha?.enabled} onChange={(e) => setCfg({ ...cfg, captcha: { ...cfg.captcha, enabled: e.target.checked } })} /><span>Require CAPTCHA</span></label>
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-700" htmlFor="captcha-provider">Provider</label>
+            <select id="captcha-provider" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" value={cfg.captcha?.provider ?? 'turnstile'} onChange={(e) => setCfg({ ...cfg, captcha: { ...cfg.captcha, provider: e.target.value } })}>
+              <option value="turnstile">Cloudflare Turnstile</option>
+              <option value="hcaptcha">hCaptcha</option>
+            </select>
+          </div>
+          <Input label="Secret key" type="password" value={cfg.captcha?.secret ?? ''} onChange={(e) => setCfg({ ...cfg, captcha: { ...cfg.captcha, secret: e.target.value } })} />
+        </div>
+      </Card>
       <div className="flex items-center gap-3"><Button onClick={() => save.mutate()} loading={save.isPending} data-testid="save-auth-settings">Save settings</Button><ErrorBox error={save.error} /></div>
     </div>
   );

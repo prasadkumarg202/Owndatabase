@@ -5,12 +5,14 @@ import { authPublicUrl, config } from '../config.js';
 import { projectContext } from '../middleware/auth.js';
 import { allow, audit, authSettings, getUserByEmail, isAllowedRedirect } from '../lib/session.js';
 import { createOtp, publicApiKey } from './verify.js';
+import { captchaBlocked } from '../lib/captcha.js';
 
 const schema = z.object({ email: z.string().email().transform((e) => e.toLowerCase().trim()), redirect_to: z.string().optional() });
 
 export default async function (server: FastifyInstance) {
   const handler = async (req: any, reply: any) => {
     const { project } = req.ctx;
+    if (await captchaBlocked(req, reply, authSettings(project).captcha)) return reply;
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return reply.status(400).send({ error: 'Bad Request', message: 'A valid email is required' });
     const { email } = parsed.data;

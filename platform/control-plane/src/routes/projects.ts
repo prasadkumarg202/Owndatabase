@@ -63,6 +63,8 @@ export const DEFAULT_AUTH_CONFIG = {
     webhook_url: '', webhook_secret: '',
     template: 'Your verification code is {{code}}',
   },
+  // bot protection (Cloudflare Turnstile or hCaptcha) on sign-up, sign-in, OTP and recovery
+  captcha: { enabled: false, provider: 'turnstile' as 'turnstile' | 'hcaptcha', secret: '' },
 };
 
 const SMS_SECRETS = ['twilio_auth_token', 'webhook_secret'] as const;
@@ -95,6 +97,7 @@ const authConfigSchema = z.object({
     webhook_secret: z.string().max(200),
     template: z.string().max(300).refine((t) => t.includes('{{code}}'), 'template must contain {{code}}'),
   }).partial(),
+  captcha: z.object({ enabled: z.boolean(), provider: z.enum(['turnstile', 'hcaptcha']), secret: z.string().max(200) }).partial(),
 }).partial();
 
 export function endpointsFor(projectId: string) {
@@ -116,6 +119,7 @@ function redactAuthConfig(cfg: any) {
     if (p?.client_secret) p.client_secret = MASK;
   }
   for (const k of SMS_SECRETS) if (clone.sms?.[k]) clone.sms[k] = MASK;
+  if (clone.captcha?.secret) clone.captcha.secret = MASK;
   return clone;
 }
 
@@ -363,6 +367,13 @@ export const projectRoutes: FastifyPluginAsync = async (server: FastifyInstance)
       }
       if (next.sms.provider === 'webhook' && !next.sms.webhook_url) {
         return reply.status(400).send({ error: 'Validation Error', message: 'The webhook provider needs a webhook_url' });
+      }
+    }
+    if (input.data.captcha) {
+      next.captcha = { ...DEFAULT_AUTH_CONFIG.captcha, ...current.captcha, ...input.data.captcha };
+      if (input.data.captcha.secret === MASK) next.captcha.secret = current.captcha?.secret ?? '';
+      if (next.captcha.enabled && !next.captcha.secret) {
+        return reply.status(400).send({ error: 'Validation Error', message: 'CAPTCHA needs the provider secret key' });
       }
     }
     await db`

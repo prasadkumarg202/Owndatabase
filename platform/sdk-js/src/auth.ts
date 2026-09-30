@@ -29,6 +29,9 @@ function defaultStorage(): StorageLike | null {
   try { const s = (globalThis as any).localStorage as StorageLike | undefined; return s ?? null; } catch { return null; }
 }
 
+/** CAPTCHA token (Turnstile / hCaptcha widget) in the field the auth service reads. */
+const withCaptcha = <T extends object>(body: T, token?: string) => (token ? { ...body, captcha_token: token } : body);
+
 export class AuthClient {
   private session: Session | null = null;
   private listeners = new Set<Listener>();
@@ -84,17 +87,18 @@ export class AuthClient {
     return { data: { user: d.user ?? null, session: null }, error: null };
   }
 
-  signUp(creds: { email?: string; phone?: string; password: string; options?: { data?: Record<string, unknown> } }) {
-    return this.tokenCall('signup', creds, 'SIGNED_IN');
+  signUp(creds: { email?: string; phone?: string; password: string; options?: { data?: Record<string, unknown>; captchaToken?: string } }) {
+    return this.tokenCall('signup', withCaptcha(creds, creds.options?.captchaToken), 'SIGNED_IN');
   }
 
-  signInWithPassword(creds: { email?: string; phone?: string; password: string }) {
-    return this.tokenCall('token?grant_type=password', creds, 'SIGNED_IN');
+  signInWithPassword(creds: { email?: string; phone?: string; password: string; options?: { captchaToken?: string } }) {
+    const { options, ...rest } = creds;
+    return this.tokenCall('token?grant_type=password', withCaptcha(rest, options?.captchaToken), 'SIGNED_IN');
   }
 
   /** Email magic link / code, or an SMS code. */
-  async signInWithOtp(creds: { email?: string; phone?: string; options?: { shouldCreateUser?: boolean; data?: Record<string, unknown>; emailRedirectTo?: string } }) {
-    const body = { email: creds.email, phone: creds.phone, create_user: creds.options?.shouldCreateUser ?? true, data: creds.options?.data, redirect_to: creds.options?.emailRedirectTo };
+  async signInWithOtp(creds: { email?: string; phone?: string; options?: { shouldCreateUser?: boolean; data?: Record<string, unknown>; emailRedirectTo?: string; captchaToken?: string } }) {
+    const body = withCaptcha({ email: creds.email, phone: creds.phone, create_user: creds.options?.shouldCreateUser ?? true, data: creds.options?.data, redirect_to: creds.options?.emailRedirectTo }, creds.options?.captchaToken);
     const r = await this.tokenCall('otp', body, 'SIGNED_IN');
     return { data: { user: null, session: null }, error: r.error };
   }
@@ -103,8 +107,8 @@ export class AuthClient {
     return this.tokenCall('verify', params, 'SIGNED_IN');
   }
 
-  async resetPasswordForEmail(email: string, opts: { redirectTo?: string } = {}) {
-    const r = await request<any>({ ...this.ctx, bearer: async () => this.ctx.apiKey }, `${this.ctx.urls.auth}/recover`, { method: 'POST', json: { email, redirect_to: opts.redirectTo } });
+  async resetPasswordForEmail(email: string, opts: { redirectTo?: string; captchaToken?: string } = {}) {
+    const r = await request<any>({ ...this.ctx, bearer: async () => this.ctx.apiKey }, `${this.ctx.urls.auth}/recover`, { method: 'POST', json: withCaptcha({ email, redirect_to: opts.redirectTo }, opts.captchaToken) });
     return { data: {}, error: r.error };
   }
 

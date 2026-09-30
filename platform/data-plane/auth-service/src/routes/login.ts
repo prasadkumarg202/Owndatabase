@@ -8,6 +8,7 @@ import {
   ARGON2, audit, authSettings, clearFailedLogins, getUserByEmail, getUserByPhone, isLocked, issueSession, recordFailedLogin,
 } from '../lib/session.js';
 import { normalizePhone } from '../lib/sms.js';
+import { captchaBlocked } from '../lib/captcha.js';
 import { refreshSession } from './refresh.js';
 
 const passwordGrant = z.union([
@@ -21,6 +22,7 @@ export default async function (server: FastifyInstance) {
   async function passwordLogin(req: any, reply: any) {
     const { project } = req.ctx;
     const settings = authSettings(project);
+    if (await captchaBlocked(req, reply, settings.captcha)) return reply;
     const parsed = passwordGrant.safeParse(req.body);
     if (!parsed.success) return reply.status(400).send({ error: 'Bad Request', message: 'email (or phone) and password are required' });
     const byPhone = 'phone' in parsed.data;

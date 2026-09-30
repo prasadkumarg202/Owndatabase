@@ -99,6 +99,11 @@ No service exposes ports to the host except via Caddy.
 - OTP attempt limit: 5
 - SMS codes: 5 per number per hour, 20 per client IP per hour (SMS pumping)
 - SMS webhook provider: HMAC-signed, private / internal targets refused
+- CAPTCHA (bot protection), per project in Auth settings: Cloudflare Turnstile or hCaptcha
+  required on sign-up, password sign-in, magic link / OTP and password recovery. The client
+  sends the widget token as `captcha_token` (or supabase-js's `gotrue_meta_security.captcha_token`;
+  SDK: `options.captchaToken`). Verified server-side; if the provider cannot be reached the
+  request is refused (fail closed). Refresh-token calls and `service_role` calls are exempt.
 
 ### OAuth Security
 

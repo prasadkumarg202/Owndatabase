@@ -1,6 +1,6 @@
 # OwnDatabase — Implementation Plan
 
-> Status legend: `[x]` implemented — application features are covered by the pytest/Playwright suite in `tests/`; the full stack, including Caddy, Prometheus (every service scraped, node-exporter included) and Grafana (health and provisioned datasources), was brought up with Docker Compose and checked by the suite (142 tests passing, 0 skipped with the test settings from `.env.example`). Loki is running but its log contents are not asserted. `[~]` partial or untested template. `[ ]` not done.
+> Status legend: `[x]` implemented — application features are covered by the pytest/Playwright suite in `tests/`; the full stack, including Caddy, Prometheus (every service scraped, node-exporter included) and Grafana (health and provisioned datasources), was brought up with Docker Compose and checked by the suite (231 tests passing on the single-node stack on 2026-09-30; the 7 skipped need `ODB_HA=1` or `ODB_DESTRUCTIVE_TESTS=1`). Loki is running but its log contents are not asserted. `[~]` partial or untested template. `[ ]` not done.
 
 > **Version:** 0.1.0
 
@@ -277,4 +277,4 @@
 - [x] JavaScript SDK `@owndatabase/client` (query builder, auth with auto-refresh, storage, functions, realtime) — [platform/sdk-js](../platform/sdk-js/README.md)
 - [x] GraphQL (generated from the schema, relations, filters, mutations; one SQL statement per root field; RLS) — [graphql.md](graphql.md)
 - [x] Billing (opt-in: plans, project caps, usage metering, monthly invoices, manual / Stripe / Razorpay payments) — [billing.md](billing.md)
-- [ ] Bot detection (CAPTCHA on auth)
+- [x] Bot detection: CAPTCHA (Turnstile / hCaptcha) on sign-up, sign-in, OTP and recovery, plus the existing rate limits

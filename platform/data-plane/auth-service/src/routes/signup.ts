@@ -10,6 +10,7 @@ import { allow, ARGON2, audit, authSettings, getUserByEmail, getUserByPhone, iss
 import { QUOTA_ERROR } from '../lib/limits.js';
 import { normalizePhone } from '../lib/sms.js';
 import { phoneAuthError, sendPhoneOtp } from './verify.js';
+import { captchaBlocked } from '../lib/captcha.js';
 
 const signupSchema = z.object({
   email: z.string().email().max(255).transform((e) => e.toLowerCase().trim()),
@@ -74,6 +75,7 @@ export default async function (server: FastifyInstance) {
   }
 
   server.post('/v1/:projectId/signup', { preValidation: [projectContext] }, async (req, reply) => {
+    if (await captchaBlocked(req, reply, authSettings(req.ctx.project).captcha)) return reply;
     if ((req.body as any)?.phone !== undefined && (req.body as any)?.email === undefined) return phoneSignup(req, reply);
     const { project } = req.ctx;
     const settings = authSettings(project);

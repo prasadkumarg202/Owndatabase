@@ -10,6 +10,7 @@ import { config } from '../config.js';
 import { PlatformAuth, type ProjectInfo } from './platform-auth.js';
 import type { SmsSettings } from './sms.js';
 import { limitOf } from './limits.js';
+import type { CaptchaSettings } from './captcha.js';
 
 export const platform = new PlatformAuth(db, config.JWT_SECRET, redisSub);
 
@@ -29,13 +30,15 @@ export interface AuthSettings {
   enable_phone_auth: boolean;
   sms_otp_expiry_minutes: number;
   sms: SmsSettings;
+  /** bot protection on sign-up, sign-in, OTP and recovery */
+  captcha: CaptchaSettings;
 }
 
 export const DEFAULT_SETTINGS: AuthSettings = {
   enable_signup: true, require_email_confirmation: false, password_min_length: 8, jwt_expiry: 3600,
   enable_magic_link: true, enable_mfa: true, max_failed_logins: 5, lockout_minutes: 15,
   site_url: '', redirect_urls: [], providers: {},
-  enable_phone_auth: false, sms_otp_expiry_minutes: 10, sms: {},
+  enable_phone_auth: false, sms_otp_expiry_minutes: 10, sms: {}, captcha: {},
 };
 
 export function authSettings(project: ProjectInfo): AuthSettings {

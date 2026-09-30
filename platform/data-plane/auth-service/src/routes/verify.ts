@@ -14,6 +14,7 @@ import { db } from '../lib/db.js';
 import { generateLinkToken, generateOTP, hashOTP } from '../lib/otp.js';
 import { sendMagicLinkEmail, sendVerificationEmail } from '../lib/email.js';
 import { normalizePhone, sendSmsCode, smsAvailable, SmsNotConfigured } from '../lib/sms.js';
+import { captchaBlocked } from '../lib/captcha.js';
 import { authPublicUrl, config } from '../config.js';
 import { projectContext } from '../middleware/auth.js';
 import { allow, audit, authSettings, getUserByEmail, getUserById, getUserByPhone, isAllowedRedirect, issueSession, type UserRow, userQuotaError } from '../lib/session.js';
@@ -172,6 +173,7 @@ export default async function (server: FastifyInstance) {
   server.post('/v1/:projectId/otp', { preValidation: [projectContext] }, async (req, reply) => {
     const { project } = req.ctx;
     const settings = authSettings(project);
+    if (await captchaBlocked(req, reply, settings.captcha)) return reply;
     if ((req.body as any)?.phone !== undefined) return phoneOtp(req, reply);
     const body = z.object({
       email: z.string().email().transform((e) => e.toLowerCase().trim()),
