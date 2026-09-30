@@ -56,7 +56,10 @@ All under `/auth/v1/:projectId`, with the project's `apikey` header.
 | `POST /verify` | `{ type: "phone_change", phone, token }` | Applies the new number. |
 
 Numbers are normalised to E.164 (`+919876543210`); spaces, dashes, brackets and
-a leading `00` are accepted on input. A missing country code is not guessed.
+a leading `00` are accepted on input. Set `SMS_DEFAULT_COUNTRY_CODE` (e.g. `91`)
+so numbers typed without one — `9876543210`, `09876543210` — get it; without it
+a missing country code is not guessed and the digits are read as international
+(`9640052272` would become +964…, an Iraqi number).
 
 ## Abuse protection
 

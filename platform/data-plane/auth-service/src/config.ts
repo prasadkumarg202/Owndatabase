@@ -28,6 +28,9 @@ const configSchema = z.object({
   SMS_OTP_EXPIRY_MINUTES: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(1).max(60).optional()),
   // Test numbers: "+919999999999=123456,+15555550100=000000" — no SMS is sent, the fixed code works
   SMS_TEST_OTP: z.string().optional().default(''),
+  // Country code for numbers typed without one (e.g. 91: "9640052272" → +919640052272)
+  SMS_DEFAULT_COUNTRY_CODE: z.string().optional().transform((v) => (v ? v.replace(/^\+/, '') : undefined))
+    .refine((v) => v === undefined || /^[1-9]\d{0,3}$/.test(v), 'SMS_DEFAULT_COUNTRY_CODE must be digits, e.g. 91'),
   SITE_URL: z.string().default('http://localhost'),
   // Public base URL of the auth service (used for OAuth callback URLs)
   AUTH_PUBLIC_URL: z.string().optional(),

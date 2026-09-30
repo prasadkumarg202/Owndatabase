@@ -168,3 +168,16 @@ def test_supabase_style_template_and_test_numbers(owner, dev_sms):
     assert s.status_code == 200 and s.json()["user"]["phone"] == test_phone, s.text
     # the fixed code is single use too
     assert p.auth("POST", "verify", json={"type": "sms", "phone": test_phone, "token": "123456"}).status_code == 400
+
+
+def test_default_country_code(phone_project, dev_sms):
+    # the stack sets SMS_DEFAULT_COUNTRY_CODE (91 in .env); numbers without it stay international
+    info = phone_project.auth("POST", "otp", json={"phone": "09876501234"})
+    if info.status_code != 200:
+        pytest.skip("SMS_DEFAULT_COUNTRY_CODE not set on this stack")
+    msgs = phone_project.auth("GET", "_dev/sms", params={"phone": "+919876501234"}).json()["data"]
+    if not msgs:
+        pytest.skip("SMS_DEFAULT_COUNTRY_CODE is not 91 on this stack")
+    code = msgs[0]["code"]
+    r = phone_project.auth("POST", "verify", json={"type": "sms", "phone": "98765 01234", "token": code})
+    assert r.status_code == 200 and r.json()["user"]["phone"] == "+919876501234", r.text

@@ -67,10 +67,18 @@ async function assertPublicUrl(raw: string) {
 }
 
 /** E.164 (+ and 8-15 digits). Accepts spaces, dashes, brackets and a missing '+'. */
-export function normalizePhone(raw: string): string | null {
+export function normalizePhone(raw: string, defaultCountryCode = config.SMS_DEFAULT_COUNTRY_CODE): string | null {
   const s = raw.trim().replace(/[\s\-().]/g, '');
-  const digits = s.startsWith('+') ? s.slice(1) : s.startsWith('00') ? s.slice(2) : s;
-  return /^[1-9]\d{7,14}$/.test(digits) ? `+${digits}` : null;
+  if (s.startsWith('+') || s.startsWith('00')) {
+    const digits = s.startsWith('+') ? s.slice(1) : s.slice(2);
+    return /^[1-9]\d{7,14}$/.test(digits) ? `+${digits}` : null;
+  }
+  // A national number (up to 10 digits after an optional trunk 0) gets the default
+  // country code: with 91, "9640052272" and "09640052272" → +919640052272.
+  // Without one, the digits are read as international, e.g. "919640052272".
+  const national = s.replace(/^0/, '');
+  if (defaultCountryCode && /^\d{6,10}$/.test(national)) return `+${defaultCountryCode}${national}`;
+  return /^[1-9]\d{7,14}$/.test(s) ? `+${s}` : null;
 }
 
 function resolve(s: SmsSettings): SmsSettings {

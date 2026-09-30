@@ -326,6 +326,7 @@ services:
       SMS_TEMPLATE: ${SMS_TEMPLATE:-}
       SMS_OTP_EXPIRY_MINUTES: ${SMS_OTP_EXPIRY_MINUTES:-}
       SMS_TEST_OTP: ${SMS_TEST_OTP:-}
+      SMS_DEFAULT_COUNTRY_CODE: ${SMS_DEFAULT_COUNTRY_CODE:-}
       SITE_URL: ${SITE_URL:-http://localhost}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
