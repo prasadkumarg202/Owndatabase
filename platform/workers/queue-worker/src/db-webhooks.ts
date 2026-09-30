@@ -15,9 +15,10 @@
  */
 import type postgres from 'postgres';
 import type { Logger } from 'pino';
-import { createDecipheriv, createHmac } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { Counter } from 'prom-client';
 import { assertPublicUrl } from './net-guard.js';
+import type { VaultClient } from './vault-client.js';
 
 const BACKOFF_S = [10, 30, 120, 600, 1800];
 const MAX_ATTEMPTS = BACKOFF_S.length + 1;
@@ -25,18 +26,7 @@ const BATCH = 20;
 
 const deliveries = new Counter({ name: 'owndatabase_db_webhook_deliveries_total', help: 'Database webhook delivery attempts', labelNames: ['result'] });
 
-function decrypt(buf: Buffer | null, key: string | undefined): string | null {
-  if (!buf || !key) return null;
-  try {
-    const d = createDecipheriv('aes-256-gcm', Buffer.from(key, 'hex'), buf.subarray(0, 12));
-    d.setAuthTag(buf.subarray(12, 28));
-    return d.update(buf.subarray(28)) + d.final('utf8');
-  } catch {
-    return null;
-  }
-}
-
-export function startDbWebhookDispatcher(sql: postgres.Sql<any>, logger: Logger, encKey: string | undefined) {
+export function startDbWebhookDispatcher(sql: postgres.Sql<any>, logger: Logger, vault: VaultClient) {
   let draining = false;
   let again = false;
   let stopped = false;
@@ -58,7 +48,9 @@ export function startDbWebhookDispatcher(sql: postgres.Sql<any>, logger: Logger,
           'x-odb-event-id': String(e['id']),
           ...(hook['headers'] ?? {}),
         };
-        const secret = decrypt(hook['secret_encrypted'], encKey);
+        // signing secret from the vault (docs/vault.md); if it can't be read the delivery fails and is retried, never sent unsigned
+        const secret = hook['secret_encrypted'] ? (await vault.reveal(String(hook['project_id']), 'db_webhook', String(hook['id'])))['secret'] : null;
+        if (hook['secret_encrypted'] && !secret) throw new Error('Webhook signing secret is unavailable');
         if (secret) {
           const ts = Math.floor(Date.now() / 1000);
           headers['x-odb-timestamp'] = String(ts);
@@ -111,7 +103,7 @@ export function startDbWebhookDispatcher(sql: postgres.Sql<any>, logger: Logger,
           RETURNING e.id, e.webhook_id, e.payload, e.attempts`;
         if (!batch.length) break;
         const ids = [...new Set(batch.map((e) => e['webhook_id'] as string))];
-        const hooks = await sql`SELECT id, url, http_method, headers, secret_encrypted, timeout_ms, enabled FROM control_plane.db_webhooks WHERE id = ANY(${ids})`;
+        const hooks = await sql`SELECT id, project_id, url, http_method, headers, secret_encrypted, timeout_ms, enabled FROM control_plane.db_webhooks WHERE id = ANY(${ids})`;
         const byId = new Map(hooks.map((h) => [h['id'] as string, h]));
         await Promise.all(batch.map((e) => deliver(e, byId.get(e['webhook_id'] as string))));
         if (batch.length === BATCH) again = true;

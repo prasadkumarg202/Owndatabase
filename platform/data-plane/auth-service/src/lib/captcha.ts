@@ -8,6 +8,7 @@
  * `gotrue_meta_security: { captcha_token }`. Refresh-token calls are exempt.
  */
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { authSecret } from './vault.js';
 
 export interface CaptchaSettings { enabled?: boolean; provider?: 'turnstile' | 'hcaptcha'; secret?: string }
 
@@ -28,7 +29,9 @@ export async function checkCaptcha(req: FastifyRequest, settings: CaptchaSetting
   const provider = settings.provider === 'hcaptcha' ? 'hcaptcha' : 'turnstile';
   const token = captchaToken(req.body);
   if (!token) return { status: 400, error: 'Captcha Required', message: 'Complete the CAPTCHA (send captcha_token)' };
-  if (!settings.secret) {
+  const projectId = (req as any).ctx?.project?.id as string | undefined;
+  const secret = projectId ? await authSecret(projectId, 'auth.captcha.secret', settings.secret) : settings.secret;
+  if (!secret) {
     req.log.error({ provider }, 'CAPTCHA enabled without a secret');
     return { status: 500, error: 'Captcha Misconfigured', message: 'CAPTCHA is enabled but not configured' };
   }
@@ -36,7 +39,7 @@ export async function checkCaptcha(req: FastifyRequest, settings: CaptchaSetting
     const res = await fetch(VERIFY_URL[provider], {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ secret: settings.secret, response: token, remoteip: req.ip }),
+      body: new URLSearchParams({ secret, response: token, remoteip: req.ip }),
       signal: AbortSignal.timeout(8000),
     });
     const r = await res.json() as { success?: boolean; 'error-codes'?: string[] };

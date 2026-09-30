@@ -204,6 +204,9 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600}
       REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN:-604800}
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?SECRET_ENCRYPTION_KEY is required}
+      # secrets vault (docs/vault.md): master keys + the tokens services use to read secrets
+      VAULT_MASTER_KEYS: ${VAULT_MASTER_KEYS:-}
+      VAULT_SERVICE_TOKENS: auth-service:${VAULT_TOKEN_AUTH:?VAULT_TOKEN_AUTH is required (make generate-secrets)},api-service:${VAULT_TOKEN_API:?VAULT_TOKEN_API is required},queue-worker:${VAULT_TOKEN_QUEUE:?VAULT_TOKEN_QUEUE is required}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
       PUBLIC_URL: ${SITE_URL:-http://localhost}
       MIGRATIONS_DIR: /app/migrations
@@ -295,7 +298,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
-      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}  # MFA seeds only
+      VAULT_TOKEN: ${VAULT_TOKEN_AUTH}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600}
       REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN:-604800}
       AUTH_PUBLIC_URL: ${SITE_URL:-http://localhost}/auth
@@ -368,7 +372,8 @@ services:
       POOLER_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB:-owndatabase}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
-      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}
+      # no encryption key here: secrets come from the vault (docs/vault.md)
+      VAULT_TOKEN: ${VAULT_TOKEN_API}
       PUBLIC_URL: ${SITE_URL:-http://localhost}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       FUNCTIONS_RUNTIME_URL: http://functions-runtime:3010
@@ -561,7 +566,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
-      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}
+      # no encryption key here: secrets come from the vault (docs/vault.md)
+      VAULT_TOKEN: ${VAULT_TOKEN_QUEUE}
       API_SERVICE_URL: http://api-service:3003
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}

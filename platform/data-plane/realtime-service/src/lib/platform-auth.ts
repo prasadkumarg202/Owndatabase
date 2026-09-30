@@ -76,6 +76,10 @@ export class PlatformAuth {
   private keyCache = new Map<string, { value: KeyInfo | null; exp: number }>();
   private projectCache = new Map<string, { value: ProjectInfo | null; exp: number }>();
   private secret: Uint8Array;
+  private changeListeners: ((projectId: string) => void)[] = [];
+
+  /** Called when a project's settings or secrets change (odb:project-changed). */
+  onProjectChanged(fn: (projectId: string) => void) { this.changeListeners.push(fn); }
 
   constructor(private db: postgres.Sql<any>, jwtSecret: string, subscriber?: Redis) {
     this.secret = new TextEncoder().encode(jwtSecret);
@@ -87,7 +91,10 @@ export class PlatformAuth {
       subscriber.on('ready', sub);
       subscriber.on('message', (channel: string, msg: string) => {
         if (channel === 'odb:apikey-revoked') this.keyCache.delete(msg);
-        if (channel === 'odb:project-changed') this.projectCache.delete(msg);
+        if (channel === 'odb:project-changed') {
+          this.projectCache.delete(msg);
+          for (const fn of this.changeListeners) fn(msg);
+        }
       });
     }
   }

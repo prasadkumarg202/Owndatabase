@@ -24,6 +24,7 @@ import { db } from '../lib/db.js';
 import { authPublicUrl, config } from '../config.js';
 import type { ProjectInfo } from '../lib/platform-auth.js';
 import { projectContext } from '../middleware/auth.js';
+import { authSecret } from '../lib/vault.js';
 import { audit, authSettings, getUserByEmail, isAllowedRedirect, issueSession, platform, type UserRow, userQuotaError } from '../lib/session.js';
 
 type Kind = 'authorize' | 'token' | 'userinfo' | 'emails' | 'jwks' | 'issuer';
@@ -242,10 +243,12 @@ function credentials(settings: ReturnType<typeof authSettings>, provider: string
 }
 
 /** Apple's client secret is a short-lived ES256 JWT signed with the .p8 key. */
-async function clientSecret(provider: string, c: Creds): Promise<string> {
-  if (provider !== 'apple' || !c.secret.includes('PRIVATE KEY')) return c.secret;
+async function clientSecret(projectId: string, provider: string, c: Creds): Promise<string> {
+  // the project's secret is sealed in the vault (docs/vault.md); platform env credentials are not
+  const secret = (await authSecret(projectId, `auth.providers.${provider}.client_secret`, c.secret)) ?? '';
+  if (provider !== 'apple' || !secret.includes('PRIVATE KEY')) return secret;
   if (!c.p.team_id || !c.p.key_id) throw new Error('Apple needs the team ID and key ID with the .p8 key');
-  const key = await importPKCS8(c.secret.replace(/\\n/g, '\n'), 'ES256');
+  const key = await importPKCS8(secret.replace(/\\n/g, '\n'), 'ES256');
   return new SignJWT({}).setProtectedHeader({ alg: 'ES256', kid: c.p.key_id })
     .setIssuer(c.p.team_id).setSubject(c.id).setAudience('https://appleid.apple.com')
     .setIssuedAt().setExpirationTime('5m').sign(key);
@@ -476,7 +479,7 @@ export default async function (server: FastifyInstance) {
     let profile: Profile;
     let tok: any;
     try {
-      const secret = await clientSecret(provider, creds);
+      const secret = await clientSecret(projectId, provider, creds);
       const form: Record<string, string> = {
         grant_type: 'authorization_code', code: q['code'], redirect_uri: `${authPublicUrl}/v1/${projectId}/callback`,
       };

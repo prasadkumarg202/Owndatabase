@@ -11,7 +11,6 @@ const configSchema = z.object({
   REPLICA_MAX_LAG_BYTES: z.coerce.number().default(16 * 1024 * 1024),
   REDIS_URL: z.string().min(1),
   JWT_SECRET: z.string().min(32),
-  SECRET_ENCRYPTION_KEY: z.string().regex(/^[0-9a-f]{64}$/i).optional(),
   PUBLIC_URL: z.string().default('http://localhost'),
   LOG_LEVEL: z.string().default('info'),
   NODE_ENV: z.string().default('development'),

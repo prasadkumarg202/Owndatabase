@@ -13,6 +13,7 @@ import { createHmac } from 'node:crypto';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import { config } from '../config.js';
+import { authSecret } from './vault.js';
 import { redis } from './redis.js';
 
 export interface SmsSettings {
@@ -98,7 +99,10 @@ export function smsAvailable(s: SmsSettings): boolean {
 }
 
 export async function sendSmsCode(projectId: string, settings: SmsSettings, to: string, code: string) {
-  const s = resolve(settings);
+  const s = { ...resolve(settings) };
+  // the project's own Twilio token / webhook secret are sealed in the vault
+  s.twilio_auth_token = await authSecret(projectId, 'auth.sms.twilio_auth_token', s.twilio_auth_token);
+  s.webhook_secret = await authSecret(projectId, 'auth.sms.webhook_secret', s.webhook_secret);
   // {{code}} or Supabase's {{ .Code }}
   const body = (s.template || config.SMS_TEMPLATE || 'Your verification code is {{code}}').replace(CODE_PLACEHOLDER, code);
 

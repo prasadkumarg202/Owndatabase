@@ -15,7 +15,8 @@ import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { db, ident } from '../lib/db.js';
 import { ADMIN_ROLES, audit, requireProject, userId } from '../lib/access.js';
-import { encryptSecret } from '../lib/crypto.js';
+import { randomUUID } from 'node:crypto';
+import { sealBytes } from '../lib/vault.js';
 
 const s = (summary: string) => ({ schema: { tags: ['webhooks'], summary, security: [{ bearerAuth: [] }] } });
 const identRe = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
@@ -82,11 +83,13 @@ export const dbWebhookRoutes: FastifyPluginAsync = async (server: FastifyInstanc
     const [dup] = await db`SELECT 1 FROM control_plane.db_webhooks WHERE project_id = ${p.id} AND name = ${h.name}`;
     if (dup) return reply.status(409).send({ error: 'Conflict', message: 'A webhook with that name already exists' });
 
+    const hookId = randomUUID();
+    const sealed = h.secret ? await sealBytes(p.id, `db_webhook:${hookId}`, h.secret) : null;
     const hook = await db.begin(async (sql) => {
       const [row] = await sql`
-        INSERT INTO control_plane.db_webhooks (project_id, name, schema_name, table_name, events, url, http_method, headers, secret_encrypted, timeout_ms, enabled, created_by)
-        VALUES (${p.id}, ${h.name}, ${p.db_schema}, ${h.table}, ${h.events}, ${h.url}, ${h.method}, ${sql.json(h.headers)},
-                ${h.secret ? encryptSecret(h.secret) : null}, ${h.timeout_ms}, ${h.enabled}, ${userId(request)})
+        INSERT INTO control_plane.db_webhooks (id, project_id, name, schema_name, table_name, events, url, http_method, headers, secret_encrypted, timeout_ms, enabled, created_by)
+        VALUES (${hookId}, ${p.id}, ${h.name}, ${p.db_schema}, ${h.table}, ${h.events}, ${h.url}, ${h.method}, ${sql.json(h.headers)},
+                ${sealed}, ${h.timeout_ms}, ${h.enabled}, ${userId(request)})
         RETURNING *`;
       return row!;
     });
@@ -119,7 +122,7 @@ export const dbWebhookRoutes: FastifyPluginAsync = async (server: FastifyInstanc
       const [t] = await db`SELECT 1 FROM pg_tables WHERE schemaname = ${p.db_schema} AND tablename = ${table}`;
       if (!t) return reply.status(404).send({ error: 'Not Found', message: `Table ${table} does not exist` });
     }
-    const secret = sent.has('secret') ? (b.secret ? encryptSecret(b.secret) : null) : cur['secret_encrypted'];
+    const secret = sent.has('secret') ? (b.secret ? await sealBytes(p.id, `db_webhook:${cur['id']}`, b.secret) : null) : cur['secret_encrypted'];
     const [row] = await db`
       UPDATE control_plane.db_webhooks SET
         name = ${pick('name', 'name') as string}, table_name = ${table}, events = ${pick('events', 'events') as string[]},

@@ -65,6 +65,10 @@
     handle /api/metrics {
         respond 404
     }
+    # the vault is for internal services only (docs/vault.md)
+    handle /api/internal/vault* {
+        respond 404
+    }
 
     # ── Control API ──────────────────────────────────────────────────────────
     handle /api/* {

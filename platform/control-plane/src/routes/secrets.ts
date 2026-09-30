@@ -7,15 +7,16 @@
  *
  * IMPORTANT:
  * - Secret values are NEVER returned after creation
- * - Values are AES-256-GCM encrypted at rest
+ * - Values are sealed by the vault (envelope encryption, docs/vault.md)
  * - Only secret metadata (name, created_at) is shown
  */
 
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { db } from '../lib/db.js';
-import { encryptSecret } from '../lib/crypto.js';
+import { sealBytes } from '../lib/vault.js';
 import { logger } from '../lib/logger.js';
+import { redis } from '../lib/redis.js';
 import { requireProject, userId, audit, WRITE_ROLES } from '../lib/access.js';
 
 const createSecretSchema = z.object({
@@ -50,7 +51,7 @@ export const secretRoutes: FastifyPluginAsync = async (server: FastifyInstance) 
     const p = await requireProject(request, reply, project_id, WRITE_ROLES);
     if (!p) return;
 
-    const encryptedValue = encryptSecret(value);
+    const encryptedValue = await sealBytes(project_id, `function_secret:${name}`, value);
     const secret = await db.begin(async (sql) => {
       await sql`UPDATE control_plane.secrets SET is_active = false WHERE project_id = ${project_id} AND name = ${name} AND is_active = true`;
       const [{ max_version }] = await sql`
@@ -62,6 +63,7 @@ export const secretRoutes: FastifyPluginAsync = async (server: FastifyInstance) 
         RETURNING id, name, version, created_at`;
       return row!;
     });
+    await redis.publish('odb:project-changed', project_id).catch(() => {});  // services drop cached secrets
     await audit(request, 'secret.created', { type: 'secret', id: secret['id'] as string, projectId: project_id }, { name, version: secret['version'] });
     logger.info({ projectId: project_id, secretName: name }, 'Secret created/updated');
     return reply.status(201).send({ ...secret, message: 'Secret stored. The value cannot be retrieved again.' });
@@ -75,6 +77,7 @@ export const secretRoutes: FastifyPluginAsync = async (server: FastifyInstance) 
     const p = await requireProject(request, reply, secret['project_id'] as string, ['owner', 'admin']);
     if (!p) return;
     await db`UPDATE control_plane.secrets SET is_active = false WHERE project_id = ${p.id} AND name = ${secret['name'] as string}`;
+    await redis.publish('odb:project-changed', p.id).catch(() => {});
     await audit(request, 'secret.deleted', { type: 'secret', id, projectId: p.id }, { name: secret['name'] });
     return reply.send({ success: true });
   });

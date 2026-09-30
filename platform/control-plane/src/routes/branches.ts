@@ -22,6 +22,7 @@ import { spawn } from 'node:child_process';
 import { z } from 'zod';
 import { db } from '../lib/db.js';
 import { ADMIN_ROLES, audit, requireProject } from '../lib/access.js';
+import { resealAuthSettings } from '../lib/vault.js';
 import { getProjectDbPassword, projectConnectionUrl, projectDb } from '../lib/project-db.js';
 import { pgDump, toMigration } from './migrations.js';
 import { BRANCH_REQUEST_TOKEN } from '../lib/billing.js';
@@ -123,10 +124,12 @@ export const branchRoutes: FastifyPluginAsync = async (server: FastifyInstance) 
     }
 
     // metadata: parent link, migration history, settings, functions
+    // (auth secrets are bound to their project by the vault: re-seal the parent's for the branch)
+    const branchAuth = await resealAuthSettings(parent.id, branchId, pp!['settings']?.['auth'] ?? {});
     await db.begin(async (sql) => {
       await sql`
         UPDATE control_plane.projects SET parent_project_id = ${parent.id}, branch_name = ${input.data.name},
-          settings = settings || jsonb_build_object('auth', ${pp!['settings']?.['auth'] ? sql.json(pp!['settings']['auth']) : sql.json({})}::jsonb,
+          settings = settings || jsonb_build_object('auth', ${sql.json(branchAuth)}::jsonb,
                                                     'limits', ${sql.json(pp!['settings']?.['limits'] ?? {})}::jsonb)
         WHERE id = ${branchId}`;
       await sql`

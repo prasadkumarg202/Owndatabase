@@ -20,6 +20,7 @@ import { db } from '../lib/db.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config.js';
 import { ADMIN_ROLES, audit, ownerRole, requireProject, userId } from '../lib/access.js';
+import { sealAuthSettings } from '../lib/vault.js';
 import { dropProjectSchema, generateApiKey } from '../lib/provision.js';
 import { closeProjectDb, ensureProjectProvisioned, getProjectDbPassword, projectConnectionUrl } from '../lib/project-db.js';
 import { redis } from '../lib/redis.js';
@@ -308,6 +309,8 @@ export const projectRoutes: FastifyPluginAsync = async (server: FastifyInstance)
       await closeProjectDb(b['id'] as string);
       await dropProjectSchema(b['db_schema'] as string);
       if (b['id'] !== id) await db`DELETE FROM control_plane.projects WHERE id = ${b['id'] as string}`;
+      // crypto-shred: without its data keys the project's secrets (also in old backups) can't be decrypted
+      await db`DELETE FROM control_plane.vault_keys WHERE scope = ${b['id'] as string}`;
     }
     await audit(request, 'project.deleted', { type: 'project', id, orgId: p.organization_id }, { slug: p.slug });
     await db`DELETE FROM control_plane.projects WHERE id = ${id}`;
@@ -389,6 +392,8 @@ export const projectRoutes: FastifyPluginAsync = async (server: FastifyInstance)
         return reply.status(400).send({ error: 'Validation Error', message: 'CAPTCHA needs the provider secret key' });
       }
     }
+    // secrets are stored sealed by the vault (docs/vault.md); the auth service asks the vault for them
+    await sealAuthSettings(id, next);
     await db`
       UPDATE control_plane.projects SET settings = jsonb_set(settings, '{auth}', ${db.json(next)}) WHERE id = ${id}`;
     await invalidateProjectCache(id);

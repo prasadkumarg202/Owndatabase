@@ -8,6 +8,8 @@ for svc in platform/data-plane/auth-service platform/data-plane/api-service plat
     cp "$f" "$svc/src/lib/$(basename "$f")"
   done
 done
+# the queue worker reads secrets through the vault client
+cp platform/shared/vault-client.ts platform/workers/queue-worker/src/vault-client.ts
 # the control plane only shares the tracing module
 mkdir -p platform/control-plane/src/lib
 cp platform/shared/tracing.ts platform/control-plane/src/lib/tracing.ts

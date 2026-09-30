@@ -18,19 +18,21 @@ import { Redis } from 'ioredis';
 import postgres from 'postgres';
 import pino from 'pino';
 import http from 'node:http';
-import { createDecipheriv, createHmac } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { SignJWT } from 'jose';
 import nodemailer from 'nodemailer';
 import { collectDefaultMetrics, register, Counter } from 'prom-client';
 import { assertPublicUrl } from './net-guard.js';
 import { startDbWebhookDispatcher } from './db-webhooks.js';
+import { VaultClient } from './vault-client.js';
 
 const logger = pino({ level: process.env['LOG_LEVEL'] ?? 'info', base: { service: 'queue-worker' } });
 const REDIS_URL = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
 const DATABASE_URL = process.env['DATABASE_URL'] ?? '';
 const JWT_SECRET = process.env['JWT_SECRET'] ?? '';
 const API_SERVICE_URL = process.env['API_SERVICE_URL'] ?? 'http://api-service:3003';
-const ENC_KEY = process.env['SECRET_ENCRYPTION_KEY'];
+// project DB passwords and webhook secrets come from the control API's vault (docs/vault.md)
+const vault = new VaultClient();
 const PORT = Number(process.env['PORT'] ?? 3006);
 const CONCURRENCY = Number(process.env['QUEUE_CONCURRENCY'] ?? 5);
 
@@ -48,20 +50,14 @@ const mailer = process.env['SMTP_HOST']
     })
   : null;
 
-function decrypt(hex: string): string {
-  if (!ENC_KEY) throw new Error('SECRET_ENCRYPTION_KEY is not set');
-  const buf = Buffer.from(hex, 'hex');
-  const d = createDecipheriv('aes-256-gcm', Buffer.from(ENC_KEY, 'hex'), buf.subarray(0, 12));
-  d.setAuthTag(buf.subarray(12, 28));
-  return d.update(buf.subarray(28)) + d.final('utf8');
-}
-
 async function runSqlAsOwner(projectId: string, query: string) {
   const [p] = await sql`SELECT db_schema, metadata->>'db_password_enc' AS enc FROM control_plane.projects WHERE id = ${projectId}`;
   if (!p?.['enc']) throw new Error('Project has no database owner credentials (re-run provisioning)');
   const u = new URL(DATABASE_URL);
   u.username = `${p['db_schema']}_owner`.slice(0, 63);
-  u.password = encodeURIComponent(decrypt(p['enc'] as string));
+  const pw = (await vault.reveal(projectId, 'db_password'))['db_password'];
+  if (!pw) throw new Error('Project database password is unavailable');
+  u.password = encodeURIComponent(pw);
   const owner = postgres(u.toString(), { max: 1, onnotice: () => {} });
   try {
     return await owner.begin(async (tx) => {
@@ -154,7 +150,7 @@ worker.on('failed', async (job, err) => {
 });
 worker.on('error', (err) => logger.error({ err: err.message }, 'Worker error'));
 
-const stopDbWebhooks = startDbWebhookDispatcher(sql, logger, ENC_KEY);
+const stopDbWebhooks = startDbWebhookDispatcher(sql, logger, vault);
 
 http.createServer(async (req, res) => {
   if (req.url === '/health') {

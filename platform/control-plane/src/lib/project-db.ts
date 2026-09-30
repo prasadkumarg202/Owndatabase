@@ -8,7 +8,7 @@
 import postgres from 'postgres';
 import { config } from '../config.js';
 import { db } from './db.js';
-import { decryptSecret, encryptSecret } from './crypto.js';
+import { open as vaultOpen, seal as vaultSeal } from './vault.js';
 import { ownerRole } from './access.js';
 import { generateDbPassword, provisionProjectSchema } from './provision.js';
 
@@ -26,7 +26,7 @@ export async function getProjectDbPassword(projectId: string): Promise<string> {
     SELECT metadata->>'db_password_enc' AS db_password_enc, db_schema
     FROM control_plane.projects WHERE id = ${projectId}`;
   if (!row) throw new Error('Project not found');
-  if (row.db_password_enc) return decryptSecret(Buffer.from(row.db_password_enc, 'hex'));
+  if (row.db_password_enc) return vaultOpen(projectId, 'db_password', row.db_password_enc);
   // Legacy project without an owner login yet → provision now
   return ensureProjectProvisioned(projectId, row.db_schema);
 }
@@ -34,7 +34,7 @@ export async function getProjectDbPassword(projectId: string): Promise<string> {
 export async function ensureProjectProvisioned(projectId: string, schema: string): Promise<string> {
   const password = generateDbPassword();
   await provisionProjectSchema(schema, password);
-  const enc = encryptSecret(password).toString('hex');
+  const enc = await vaultSeal(projectId, 'db_password', password);
   await db`
     UPDATE control_plane.projects
     SET metadata = metadata || ${db.json({ db_password_enc: enc })}

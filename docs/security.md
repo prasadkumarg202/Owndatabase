@@ -226,11 +226,12 @@ Database isolation is available for compliance requirements.
 
 ### Storage
 
-- Secrets stored in `control_plane.secrets` table
-- Encrypted with AES-256-GCM using a master key
-- Master key stored in environment variable, never in database
-- Secrets never logged or returned in API responses after creation
-- Only secret metadata (name, created_at, last_rotated) is shown after creation
+All project secrets go through the secrets vault ([vault.md](vault.md)):
+- envelope encryption: a data key per project, wrapped by master keys that only the control API holds
+- each ciphertext is bound to its project and field
+- services read secrets through the vault with per-service tokens and policies
+- every access is audited
+- secrets are never returned by the API; function secrets are write-only
 
 ### Secret Categories
 
@@ -245,9 +246,9 @@ Database isolation is available for compliance requirements.
 
 ### Secret Rotation
 
-- Rotation creates a new version, old version retained for grace period
-- Grace period: configurable, default 24 hours
-- Services must reload secrets on rotation signal
+- Master keys: add a new key first in `VAULT_MASTER_KEYS` and restart control-api; the data keys are re-wrapped
+- Project data keys: `POST /api/projects/:id/vault/rotate` re-encrypts the project's secrets
+- Services drop cached secrets as soon as a project changes (and after 60 s at the latest)
 
 ---
 

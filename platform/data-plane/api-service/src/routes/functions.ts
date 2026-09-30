@@ -11,12 +11,12 @@
  * also need a signed-in user token or a service_role key.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { createDecipheriv } from 'node:crypto';
 import { Counter, Histogram } from 'prom-client';
 import { db } from '../lib/db.js';
 import { config } from '../config.js';
 import { AuthError, type RequestAuth } from '../lib/platform-auth.js';
 import { platform } from '../middleware/auth.js';
+import { VaultClient } from '../lib/vault-client.js';
 import { redis } from '../lib/schema-cache.js';
 import { limitOf, QUOTA_ERROR, secondsUntilUtcMidnight, utcDay } from '../lib/limits.js';
 import { injectTrace, withSpan } from '../lib/tracing.js';
@@ -26,23 +26,12 @@ const durations = new Histogram({ name: 'owndatabase_functions_duration_seconds'
 
 let running = 0;
 
-function decrypt(buf: Buffer): string | null {
-  if (!config.SECRET_ENCRYPTION_KEY) return null;
-  try {
-    const d = createDecipheriv('aes-256-gcm', Buffer.from(config.SECRET_ENCRYPTION_KEY, 'hex'), buf.subarray(0, 12));
-    d.setAuthTag(buf.subarray(12, 28));
-    return d.update(buf.subarray(28)) + d.final('utf8');
-  } catch { return null; }
-}
+// Function secrets come from the control API's vault (docs/vault.md); this service holds no key.
+const vault = new VaultClient();
+platform.onProjectChanged((id) => vault.invalidate(id));
 
 async function projectSecrets(projectId: string): Promise<Record<string, string>> {
-  const rows = await db`SELECT name, value_encrypted FROM control_plane.secrets WHERE project_id = ${projectId} AND is_active`;
-  const out: Record<string, string> = {};
-  for (const r of rows) {
-    const v = decrypt(r['value_encrypted'] as Buffer);
-    if (v !== null) out[r['name'] as string] = v;
-  }
-  return out;
+  return vault.reveal(projectId, 'function_secrets');
 }
 
 export interface RunResult { status: number; headers: Record<string, string>; body: string; logs: string[]; error?: string; timedOut?: boolean; durationMs: number }
@@ -131,8 +120,13 @@ export default async function functionRoutes(server: FastifyInstance) {
     const rest = (req.params as Record<string, string>)['*'] ?? '';
     // Functions reach the platform through the gateway (the only internal address they may call)
     const gateway = config.FUNCTIONS_GATEWAY_URL.replace(/\/$/, '');
+    let secrets: Record<string, string>;
+    try { secrets = await projectSecrets(projectId); } catch (err) {
+      req.log.error({ err, projectId }, 'Function secrets unavailable (vault)');
+      return reply.status(503).header('Retry-After', 5).send({ error: 'Unavailable', message: 'Function secrets are temporarily unavailable' });
+    }
     const env = {
-      ...(await projectSecrets(projectId)),
+      ...secrets,
       ODB_PROJECT_ID: projectId,
       ODB_URL: gateway,
       ODB_PUBLIC_URL: config.PUBLIC_URL,
