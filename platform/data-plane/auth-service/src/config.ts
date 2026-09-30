@@ -23,6 +23,11 @@ const configSchema = z.object({
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_FROM: z.string().optional(),
   TWILIO_MESSAGING_SERVICE_SID: z.string().optional(),
+  // Platform defaults for phone OTP (a project's own Auth settings win)
+  SMS_TEMPLATE: z.string().optional().transform((v) => v || undefined),
+  SMS_OTP_EXPIRY_MINUTES: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(1).max(60).optional()),
+  // Test numbers: "+919999999999=123456,+15555550100=000000" — no SMS is sent, the fixed code works
+  SMS_TEST_OTP: z.string().optional().default(''),
   SITE_URL: z.string().default('http://localhost'),
   // Public base URL of the auth service (used for OAuth callback URLs)
   AUTH_PUBLIC_URL: z.string().optional(),

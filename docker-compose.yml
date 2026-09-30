@@ -214,6 +214,9 @@ services:
       PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
       # Usage limits for new projects (JSON), see docs/limits.md
       DEFAULT_PROJECT_LIMITS: ${DEFAULT_PROJECT_LIMITS:-{}}
+      # shown as the defaults in Auth settings
+      SMS_TEMPLATE: ${SMS_TEMPLATE:-}
+      SMS_OTP_EXPIRY_MINUTES: ${SMS_OTP_EXPIRY_MINUTES:-}
       # Billing (docs/billing.md): default off; platform admins can switch it at runtime
       BILLING_ENABLED: ${BILLING_ENABLED:-false}
       BILLING_PROVIDER: ${BILLING_PROVIDER:-manual}
@@ -319,6 +322,10 @@ services:
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
       TWILIO_FROM: ${TWILIO_FROM:-}
       TWILIO_MESSAGING_SERVICE_SID: ${TWILIO_MESSAGING_SERVICE_SID:-}
+      # platform defaults for phone OTP (docs/phone-auth.md)
+      SMS_TEMPLATE: ${SMS_TEMPLATE:-}
+      SMS_OTP_EXPIRY_MINUTES: ${SMS_OTP_EXPIRY_MINUTES:-}
+      SMS_TEST_OTP: ${SMS_TEST_OTP:-}
       SITE_URL: ${SITE_URL:-http://localhost}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:

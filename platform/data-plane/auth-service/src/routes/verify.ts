@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { db } from '../lib/db.js';
 import { generateLinkToken, generateOTP, hashOTP } from '../lib/otp.js';
 import { sendMagicLinkEmail, sendVerificationEmail } from '../lib/email.js';
-import { normalizePhone, sendSmsCode, smsAvailable, SmsNotConfigured } from '../lib/sms.js';
+import { normalizePhone, sendSmsCode, smsAvailable, SmsNotConfigured, testOtpFor } from '../lib/sms.js';
 import { captchaBlocked } from '../lib/captcha.js';
 import { authPublicUrl, config } from '../config.js';
 import { projectContext } from '../middleware/auth.js';
@@ -77,8 +77,8 @@ async function consume(project: ProjectInfo, type: string, match: { email?: stri
   return { ok: true, user, type };
 }
 
-export async function createOtp(project: ProjectInfo, user: UserRow, type: OtpType, minutes: number, phone: string | null = null) {
-  const code = generateOTP();
+export async function createOtp(project: ProjectInfo, user: UserRow, type: OtpType, minutes: number, phone: string | null = null, fixedCode: string | null = null) {
+  const code = fixedCode ?? generateOTP();
   // SMS codes have no link form
   const linkToken = phone ? null : generateLinkToken();
   // Only the newest code of a kind stays valid
@@ -100,7 +100,14 @@ export async function sendPhoneOtp(req: FastifyRequest, project: ProjectInfo, us
   if (!(await allow(`sms:${project.id}:${phone}`, 5, 3600)) || !(await allow(`sms-ip:${project.id}:${req.ip}`, 20, 3600))) {
     return { status: 429, error: 'Too Many Requests', message: 'Too many codes requested. Wait before trying again.' };
   }
-  const { code } = await createOtp(project, user, type, Number(settings.sms_otp_expiry_minutes) || 10, phone);
+  const minutes = Number(settings.sms_otp_expiry_minutes) || config.SMS_OTP_EXPIRY_MINUTES || 10;
+  // test numbers: the fixed code, no SMS (for app-store review, CI, development)
+  const testCode = testOtpFor(settings.sms ?? {}, phone);
+  const { code } = await createOtp(project, user, type, minutes, phone, testCode);
+  if (testCode) {
+    await audit(project.id, 'sms_otp_test_number', req, user.id);
+    return null;
+  }
   try {
     await sendSmsCode(project.id, settings.sms ?? {}, phone, code);
   } catch (err) {
@@ -118,7 +125,7 @@ export async function sendPhoneOtp(req: FastifyRequest, project: ProjectInfo, us
 export function phoneAuthError(project: ProjectInfo): ErrorBody | null {
   const settings = authSettings(project);
   if (!settings.enable_phone_auth) return { status: 403, error: 'Forbidden', message: 'Phone sign-in is disabled for this project' };
-  if (!smsAvailable(settings.sms ?? {})) return { status: 501, error: 'Not Implemented', message: 'No SMS provider is configured for this project' };
+  if (!smsAvailable(settings.sms ?? {}) && !(settings.sms?.test_otp || config.SMS_TEST_OTP)) return { status: 501, error: 'Not Implemented', message: 'No SMS provider is configured for this project' };
   return null;
 }
 

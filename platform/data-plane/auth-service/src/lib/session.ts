@@ -38,7 +38,8 @@ export const DEFAULT_SETTINGS: AuthSettings = {
   enable_signup: true, require_email_confirmation: false, password_min_length: 8, jwt_expiry: 3600,
   enable_magic_link: true, enable_mfa: true, max_failed_logins: 5, lockout_minutes: 15,
   site_url: '', redirect_urls: [], providers: {},
-  enable_phone_auth: false, sms_otp_expiry_minutes: 10, sms: {}, captcha: {},
+  // 0 = the platform default (SMS_OTP_EXPIRY_MINUTES, else 10)
+  enable_phone_auth: false, sms_otp_expiry_minutes: 0, sms: {}, captcha: {},
 };
 
 export function authSettings(project: ProjectInfo): AuthSettings {

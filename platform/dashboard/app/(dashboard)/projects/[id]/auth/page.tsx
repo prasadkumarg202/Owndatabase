@@ -161,9 +161,14 @@ function Settings({ projectId }: { projectId: string }) {
               <option value="none">Platform default</option>
               <option value="twilio">Twilio</option>
               <option value="webhook">Webhook (MSG91, Gupshup, SNS, …)</option>
+              <option value="log">Log only — never send (development)</option>
             </select>
           </div>
-          <Input label="Message template" value={cfg.sms?.template ?? ''} onChange={(e) => sms('template', e.target.value)} placeholder="Your verification code is {{code}}" />
+          <Input label="Message template" value={cfg.sms?.template ?? ''} onChange={(e) => sms('template', e.target.value)} placeholder="Your verification code is {{code}}" hint="{{code}} or {{ .Code }} is replaced by the code" />
+          <div className="space-y-1 md:col-span-2">
+            <label className="block text-xs font-medium text-gray-700" htmlFor="sms-test-otp">Test numbers (no SMS is sent; the fixed code always works)</label>
+            <input id="sms-test-otp" className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs" value={cfg.sms?.test_otp ?? ''} onChange={(e) => sms('test_otp', e.target.value)} placeholder="+919999999999=123456, +15555550100=000000" />
+          </div>
           {cfg.sms?.provider === 'twilio' && (<>
             <Input label="Account SID" value={cfg.sms?.twilio_account_sid ?? ''} onChange={(e) => sms('twilio_account_sid', e.target.value)} />
             <Input label="Auth token" type="password" value={cfg.sms?.twilio_auth_token ?? ''} onChange={(e) => sms('twilio_auth_token', e.target.value)} />

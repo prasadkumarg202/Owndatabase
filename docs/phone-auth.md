@@ -14,7 +14,17 @@ Project → Authentication → Settings → **Phone (SMS)**:
 | Enable phone sign-in | Off by default. Every phone endpoint returns 403 until it is on. |
 | Code lifetime | Minutes an SMS code stays valid (default 10). |
 | SMS provider | **Platform default** (the `TWILIO_*` env vars on the auth service), **Twilio** (per-project account), or **Webhook**. |
-| Message template | Must contain `{{code}}`. |
+| Message template | Must contain `{{code}}` (Supabase's `{{ .Code }}` also works). |
+| Test numbers | `+919999999999=123456, …` — no SMS is sent to these; the fixed code signs in (app-store review, CI). |
+
+**Log only** never sends (the message is logged / kept in the dev mailbox) —
+use it for development and test projects once the platform has real SMS
+credentials.
+
+Platform defaults (env on the auth service, used when a project sets nothing):
+`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGING_SERVICE_SID` (or
+`TWILIO_FROM`), `SMS_TEMPLATE`, `SMS_OTP_EXPIRY_MINUTES`, and
+`SMS_TEST_OTP` (test numbers for every project).
 
 Secrets (Twilio auth token, webhook signing secret) are masked when read back;
 sending the mask unchanged keeps the stored value.

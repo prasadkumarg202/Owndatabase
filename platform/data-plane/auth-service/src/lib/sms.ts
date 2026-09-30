@@ -16,7 +16,8 @@ import { config } from '../config.js';
 import { redis } from './redis.js';
 
 export interface SmsSettings {
-  provider?: 'none' | 'twilio' | 'webhook';
+  /** none = platform default (TWILIO_*); log = never send (development / staging / tests) */
+  provider?: 'none' | 'twilio' | 'webhook' | 'log';
   twilio_account_sid?: string;
   twilio_auth_token?: string;
   twilio_from?: string;
@@ -24,9 +25,28 @@ export interface SmsSettings {
   webhook_url?: string;
   webhook_secret?: string;
   template?: string;
+  /** "+919999999999=123456, …" — test numbers: no SMS, fixed code */
+  test_otp?: string;
 }
 
 export class SmsNotConfigured extends Error {}
+
+export const CODE_PLACEHOLDER = /\{\{\s*\.?code\s*\}\}/gi;
+
+function parseTestOtp(list: string | undefined): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const pair of (list ?? '').split(/[,\n]/)) {
+    const [num, code] = pair.split('=').map((x) => x?.trim());
+    const phone = num ? normalizePhone(num) : null;
+    if (phone && code && /^\d{6}$/.test(code)) out.set(phone, code);
+  }
+  return out;
+}
+
+/** The fixed code for a test number (project list first, then SMS_TEST_OTP), or null. */
+export function testOtpFor(settings: SmsSettings, phone: string): string | null {
+  return parseTestOtp(settings.test_otp).get(phone) ?? parseTestOtp(config.SMS_TEST_OTP).get(phone) ?? null;
+}
 
 // Same rule as the queue worker's webhooks: no private / internal targets (SSRF)
 function isPrivateIp(ip: string): boolean {
@@ -66,18 +86,24 @@ function resolve(s: SmsSettings): SmsSettings {
 
 /** True when a code can actually reach a phone (a provider, or the dev mailbox). */
 export function smsAvailable(s: SmsSettings): boolean {
-  return resolve(s).provider !== 'none' || !!config.AUTH_DEV_MAILBOX;
+  return resolve(s).provider !== 'none' || !!config.AUTH_DEV_MAILBOX;  // 'log' counts as available
 }
 
 export async function sendSmsCode(projectId: string, settings: SmsSettings, to: string, code: string) {
   const s = resolve(settings);
-  const body = (s.template || 'Your verification code is {{code}}').replace(/\{\{\s*code\s*\}\}/g, code);
+  // {{code}} or Supabase's {{ .Code }}
+  const body = (s.template || config.SMS_TEMPLATE || 'Your verification code is {{code}}').replace(CODE_PLACEHOLDER, code);
 
   if (config.AUTH_DEV_MAILBOX) {
     const key = `auth:dev-sms:${projectId}:${to}`;
     await redis.lpush(key, JSON.stringify({ to, body, code, sent_at: new Date().toISOString() }));
     await redis.ltrim(key, 0, 19);
     await redis.expire(key, 3600);
+  }
+
+  if (s.provider === 'log') {
+    if (!config.AUTH_DEV_MAILBOX) console.log(`[sms:log] to=${to} ${body}`);
+    return;
   }
 
   if (s.provider === 'twilio') {

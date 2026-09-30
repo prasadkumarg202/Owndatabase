@@ -13,7 +13,8 @@ def new_phone() -> str:
 @pytest.fixture(scope="module")
 def phone_project(owner):
     p = create_project(owner, "Phone auth")
-    r = owner.put(f"/projects/{p.id}/auth-config", json={"enable_phone_auth": True})
+    # "log": never send a real SMS from tests, even when the platform has Twilio configured
+    r = owner.put(f"/projects/{p.id}/auth-config", json={"enable_phone_auth": True, "sms": {"provider": "log", "template": "Your verification code is {{code}}"}})
     assert r.status_code == 200, r.text
     return p
 
@@ -143,3 +144,27 @@ def test_sms_provider_settings_are_redacted(owner):
     phone = new_phone()
     r = p.auth("POST", "otp", json={"phone": phone})
     assert r.status_code == 502, r.text
+
+
+def test_supabase_style_template_and_test_numbers(owner, dev_sms):
+    p = create_project(owner, "Phone test numbers")
+    test_phone = new_phone()
+    r = owner.put(f"/projects/{p.id}/auth-config", json={"enable_phone_auth": True, "sms_otp_expiry_minutes": 3, "sms": {
+        "provider": "log", "template": "{{ .Code }} is your owndatabase code. Valid 3 minutes.", "test_otp": f"{test_phone}=123456"}})
+    assert r.status_code == 200, r.text
+    assert owner.put(f"/projects/{p.id}/auth-config", json={"sms": {"test_otp": "not-a-number"}}).status_code == 400
+
+    # {{ .Code }} placeholder (Supabase's form)
+    phone = new_phone()
+    assert p.auth("POST", "otp", json={"phone": phone}).status_code == 200
+    msg = dev_sms(p, phone)
+    assert msg["body"] == f"{msg['code']} is your owndatabase code. Valid 3 minutes."
+
+    # a test number: no SMS at all, and 123456 signs in
+    assert p.auth("POST", "otp", json={"phone": test_phone}).status_code == 200
+    assert p.auth("GET", "_dev/sms", params={"phone": test_phone}).json()["data"] == []
+    assert p.auth("POST", "verify", json={"type": "sms", "phone": test_phone, "token": "000000"}).status_code == 400
+    s = p.auth("POST", "verify", json={"type": "sms", "phone": test_phone, "token": "123456"})
+    assert s.status_code == 200 and s.json()["user"]["phone"] == test_phone, s.text
+    # the fixed code is single use too
+    assert p.auth("POST", "verify", json={"type": "sms", "phone": test_phone, "token": "123456"}).status_code == 400
