@@ -114,6 +114,14 @@ test('auth: signInAnonymously, then add an email', { skip }, async () => {
   assert.equal(up.data.user.is_anonymous, false);
 });
 
+test('auth: signInWithSSO returns the identity provider URL', { skip: skip || !process.env.ODB_SSO_DOMAIN }, async () => {
+  const { data, error } = await client(ODB_ANON_KEY).auth.signInWithSSO({
+    domain: process.env.ODB_SSO_DOMAIN, options: { redirectTo: 'http://app.example.com/after', skipBrowserRedirect: true },
+  });
+  assert.equal(error, null, JSON.stringify(error));
+  assert.ok(data.url.startsWith(process.env.ODB_SSO_URL) && data.url.includes('SAMLRequest='), data.url);
+});
+
 test('functions.invoke', { skip }, async () => {
   const r = await client(ODB_ANON_KEY).functions.invoke('compat-echo', { body: { n: 3 } });
   assert.equal(r.error, null, String(r.error));

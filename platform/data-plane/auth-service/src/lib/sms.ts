@@ -59,12 +59,13 @@ function isPrivateIp(ip: string): boolean {
   return l === '::1' || l.startsWith('fc') || l.startsWith('fd') || l.startsWith('fe80') || l.startsWith('::ffff:127.') || l === '::';
 }
 
-async function assertPublicUrl(raw: string) {
+/** Outbound requests the server makes on a project's behalf (SMS webhooks, SSO metadata) must not reach internal addresses. */
+export async function assertPublicUrl(raw: string, what = 'SMS webhooks') {
   const u = new URL(raw);
-  if (!['http:', 'https:'].includes(u.protocol)) throw new Error('Only http(s) SMS webhooks are allowed');
+  if (!['http:', 'https:'].includes(u.protocol)) throw new Error(`Only http(s) ${what} are allowed`);
   if (process.env['WEBHOOK_ALLOW_PRIVATE'] === 'true') return;
   const addrs = net.isIP(u.hostname) ? [u.hostname] : (await dns.lookup(u.hostname, { all: true })).map((a) => a.address);
-  if (addrs.some(isPrivateIp)) throw new Error('SMS webhooks to private / internal addresses are blocked');
+  if (addrs.some(isPrivateIp)) throw new Error(`${what} to private / internal addresses are blocked`);
 }
 
 /** E.164 (+ and 8-15 digits). Accepts spaces, dashes, brackets and a missing '+'. */

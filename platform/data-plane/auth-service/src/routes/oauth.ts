@@ -37,7 +37,7 @@ export interface ProviderSettings {
   /** Apple: generate the client secret from a .p8 key (client_secret = the key) */
   team_id?: string; key_id?: string;
 }
-interface Profile { id: string; email: string | null; email_verified: boolean; name?: string; avatar_url?: string; raw: Record<string, unknown> }
+export interface Profile { id: string; email: string | null; email_verified: boolean; name?: string; avatar_url?: string; raw: Record<string, unknown> }
 interface Ctx {
   access: string; idClaims: JWTPayload | null; clientId: string; form?: Record<string, string>;
   url: (kind: Kind) => string; get: (kind: Kind, headers?: Record<string, string>) => Promise<any>;
@@ -262,7 +262,7 @@ async function getJson(url: string, headers: Record<string, string>) {
 }
 
 /** 1) existing identity → 2) email match (verified provider email) → 3) new user. Returns a user or an error message. */
-async function signInUser(project: ProjectInfo, provider: string, profile: Profile): Promise<UserRow | string> {
+export async function signInUser(project: ProjectInfo, provider: string, profile: Profile): Promise<UserRow | string> {
   const projectId = project.id;
   const settings = authSettings(project);
   let user: UserRow | null = null;
@@ -386,6 +386,36 @@ export async function pkceGrant(req: FastifyRequest, reply: FastifyReply) {
   return reply.send({ ...s, provider_token: f['provider_access_token'] ?? null, provider_refresh_token: f['provider_refresh_token'] ?? null });
 }
 
+/**
+ * Ends a browser sign-in (OAuth, SAML): with PKCE the app gets ?code= to exchange (grant_type=pkce),
+ * otherwise the session in the #fragment (implicit flow, as supabase-js expects).
+ */
+export async function completeRedirectSignIn(
+  req: FastifyRequest, reply: FastifyReply, project: ProjectInfo, user: UserRow, provider: string,
+  o: { redirectTo: string; amr: string; pkce: { challenge: string; method: string } | null; providerTokens?: { access: string | null; refresh: string | null } },
+) {
+  const qs = (p: Record<string, string>) => new URLSearchParams(p).toString();
+  if (o.pkce) {
+    const code = randomBytes(24).toString('base64url');
+    await db`DELETE FROM auth.flow_state WHERE expires_at < NOW() - INTERVAL '1 hour'`;
+    await db`
+      INSERT INTO auth.flow_state (project_id, auth_code, code_challenge, code_challenge_method, user_id, provider,
+                                   provider_access_token, provider_refresh_token, expires_at)
+      VALUES (${project.id}, ${sha256hex(code)}, ${o.pkce.challenge}, ${o.pkce.method},
+              ${user.id}, ${provider}, ${o.providerTokens?.access ?? null}, ${o.providerTokens?.refresh ?? null}, NOW() + INTERVAL '5 minutes')`;
+    return reply.redirect(`${o.redirectTo}${o.redirectTo.includes('?') ? '&' : '?'}${qs({ code })}`);
+  }
+  const s = await issueSession(project, user, req, { amr: o.amr });
+  await audit(project.id, 'login', req, user.id, s.session_id, { method: o.amr, provider });
+  const frag: Record<string, string> = {
+    access_token: s.access_token, refresh_token: s.refresh_token, expires_in: String(s.expires_in),
+    expires_at: String(Math.floor(Date.now() / 1000) + Number(s.expires_in)), token_type: 'bearer', provider,
+  };
+  if (o.providerTokens?.access) frag['provider_token'] = o.providerTokens.access;
+  if (o.providerTokens?.refresh) frag['provider_refresh_token'] = o.providerTokens.refresh;
+  return reply.redirect(`${o.redirectTo}#${qs(frag)}`);
+}
+
 export default async function (server: FastifyInstance) {
   server.get('/v1/:projectId/settings', { preValidation: [projectContext] }, async (req, reply) => {
     const s = authSettings(req.ctx.project);
@@ -507,26 +537,11 @@ export default async function (server: FastifyInstance) {
 
     const user = await signInUser(project, provider, profile);
     if (typeof user === 'string') return fail(user);
-
-    if (pkce) {
-      const code = randomBytes(24).toString('base64url');
-      await db`DELETE FROM auth.flow_state WHERE expires_at < NOW() - INTERVAL '1 hour'`;
-      await db`
-        INSERT INTO auth.flow_state (project_id, auth_code, code_challenge, code_challenge_method, user_id, provider,
-                                     provider_access_token, provider_refresh_token, expires_at)
-        VALUES (${projectId}, ${sha256hex(code)}, ${st['client_code_challenge'] as string}, ${st['client_code_challenge_method'] as string},
-                ${user.id}, ${provider}, ${tok.access_token ?? null}, ${tok.refresh_token ?? null}, NOW() + INTERVAL '5 minutes')`;
-      return reply.redirect(withParams({ code }));
-    }
-    const s = await issueSession(project, user, req, { amr: 'oauth' });
-    await audit(projectId, 'login', req, user.id, s.session_id, { method: 'oauth', provider });
-    const frag: Record<string, string> = {
-      access_token: s.access_token, refresh_token: s.refresh_token, expires_in: String(s.expires_in),
-      expires_at: String(Math.floor(Date.now() / 1000) + Number(s.expires_in)), token_type: 'bearer', provider,
-    };
-    if (tok.access_token) frag['provider_token'] = tok.access_token;
-    if (tok.refresh_token) frag['provider_refresh_token'] = tok.refresh_token;
-    return reply.redirect(withParams(frag));
+    return completeRedirectSignIn(req, reply, project, user, provider, {
+      redirectTo, amr: 'oauth',
+      pkce: pkce ? { challenge: st['client_code_challenge'] as string, method: st['client_code_challenge_method'] as string } : null,
+      providerTokens: { access: tok.access_token ?? null, refresh: tok.refresh_token ?? null },
+    });
   };
   server.get('/v1/:projectId/callback', callback);
   server.post('/v1/:projectId/callback', callback);

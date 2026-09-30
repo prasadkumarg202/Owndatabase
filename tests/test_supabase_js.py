@@ -25,7 +25,11 @@ def compat_project(owner):
         create function compat_add(a int, b int) returns int language sql as $$ select a + b $$;
     """)
     assert p.owner.post(f"/projects/{p.id}/tables/compat_items/realtime", json={"enabled": True}).status_code == 200
-    assert p.owner.put(f"/projects/{p.id}/auth-config", json={"enable_anonymous_sign_ins": True}).status_code == 200
+    assert p.owner.put(f"/projects/{p.id}/auth-config", json={"enable_anonymous_sign_ins": True, "site_url": "http://app.example.com"}).status_code == 200
+    import mock_saml_idp
+    idp = mock_saml_idp.MockIdP()
+    assert p.auth("POST", "admin/sso/providers", key=p.service_key, json={"metadata_xml": idp.metadata(), "domains": ["compat-sso.example.com"]}).status_code == 201
+    p.sso = ("compat-sso.example.com", idp.sso_url)
     assert p.storage("POST", "bucket", key=p.service_key, json={"name": "compat", "public": True}).status_code in (200, 201)
     r = p.owner.post(f"/projects/{p.id}/functions", json={"slug": "compat-echo", "verify_jwt": False,
         "code": "export default async (req) => ({ status: 200, body: { got: (await req.json()).n } })"})
@@ -35,7 +39,8 @@ def compat_project(owner):
 
 def test_supabase_js(compat_project):
     env = {**os.environ, "ODB_URL": BASE, "ODB_PROJECT_ID": compat_project.id,
-           "ODB_ANON_KEY": compat_project.anon_key, "ODB_SERVICE_KEY": compat_project.service_key}
+           "ODB_ANON_KEY": compat_project.anon_key, "ODB_SERVICE_KEY": compat_project.service_key,
+           "ODB_SSO_DOMAIN": compat_project.sso[0], "ODB_SSO_URL": compat_project.sso[1]}
     p = subprocess.run([shutil.which("node") or "node", "--test", "--test-reporter=spec", "compat.test.mjs"], cwd=DIR, env=env,
                        capture_output=True, text=True, timeout=300)
     assert p.returncode == 0, p.stdout[-8000:] + p.stderr[-2000:]

@@ -18,6 +18,7 @@ import resetPasswordRoutes from './routes/reset-password.js';
 import userRoutes from './routes/user.js';
 import mfaRoutes from './routes/mfa.js';
 import oauthRoutes from './routes/oauth.js';
+import ssoRoutes from './routes/sso.js';
 import adminRoutes from './routes/admin.js';
 import { initTracing, shutdownTracing, tracingPlugin } from './lib/tracing.js';
 import { DomainMap } from './lib/domains.js';
@@ -82,7 +83,7 @@ if (config.AUTH_DEV_MAILBOX) {
 }
 
 for (const r of [signupRoutes, loginRoutes, logoutRoutes, refreshRoutes, verifyRoutes, forgotPasswordRoutes,
-  resetPasswordRoutes, userRoutes, mfaRoutes, oauthRoutes, adminRoutes]) {
+  resetPasswordRoutes, userRoutes, mfaRoutes, oauthRoutes, ssoRoutes, adminRoutes]) {
   await server.register(r);
 }
 
