@@ -308,6 +308,9 @@ services:
       OAUTH_GITHUB_TOKEN_URL: ${OAUTH_GITHUB_TOKEN_URL:-}
       OAUTH_GITHUB_USERINFO_URL: ${OAUTH_GITHUB_USERINFO_URL:-}
       OAUTH_GITHUB_EMAILS_URL: ${OAUTH_GITHUB_EMAILS_URL:-}
+      # test-only: send every other provider to a mock at <url>/<provider>/<kind> (tests/mock_oidc.py)
+      OAUTH_MOCK_URL: ${OAUTH_MOCK_URL:-}
+      OAUTH_MOCK_PUBLIC_URL: ${OAUTH_MOCK_PUBLIC_URL:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}

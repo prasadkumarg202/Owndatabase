@@ -71,6 +71,12 @@ export const DEFAULT_AUTH_CONFIG = {
 const SMS_SECRETS = ['twilio_auth_token', 'webhook_secret'] as const;
 const MASK = '••••••••';
 
+/** OAuth providers the auth service supports (auth-service/src/routes/oauth.ts) */
+export const OAUTH_PROVIDERS = [
+  'google', 'github', 'gitlab', 'bitbucket', 'azure', 'apple', 'facebook', 'discord',
+  'linkedin_oidc', 'slack_oidc', 'x', 'twitter', 'spotify', 'twitch', 'keycloak',
+] as const;
+
 const authConfigSchema = z.object({
   enable_signup: z.boolean(),
   require_email_confirmation: z.boolean(),
@@ -82,10 +88,15 @@ const authConfigSchema = z.object({
   lockout_minutes: z.number().int().min(1).max(1440),
   site_url: z.string().max(500),
   redirect_urls: z.array(z.string().max(500)).max(50),
-  providers: z.object({
-    google: z.object({ enabled: z.boolean(), client_id: z.string(), client_secret: z.string() }).partial(),
-    github: z.object({ enabled: z.boolean(), client_id: z.string(), client_secret: z.string() }).partial(),
-  }).partial(),
+  providers: z.record(z.enum(OAUTH_PROVIDERS), z.object({
+    enabled: z.boolean(),
+    client_id: z.string().max(500),
+    client_secret: z.string().max(4000),
+    url: z.string().max(500).refine((u) => u === '' || /^https?:\/\//.test(u), 'provider url must be an http(s) URL'),
+    additional_client_ids: z.string().max(2000),
+    team_id: z.string().max(20),
+    key_id: z.string().max(20),
+  }).partial()),
   enable_phone_auth: z.boolean(),
   sms_otp_expiry_minutes: z.number().int().min(1).max(60),
   sms: z.object({

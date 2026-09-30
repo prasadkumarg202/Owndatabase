@@ -40,6 +40,10 @@ server.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, bo
   if (body === '' || body === undefined) return done(null, {});
   try { done(null, JSON.parse(body as string)); } catch (err) { (err as any).statusCode = 400; done(err as Error, undefined); }
 });
+// Apple's OAuth callback posts a form (response_mode=form_post)
+server.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
+  done(null, Object.fromEntries(new URLSearchParams(body as string)));
+});
 await server.register(helmet, { contentSecurityPolicy: false });
 await server.register(cors, {
   origin: true, credentials: true,
@@ -88,6 +92,8 @@ server.setErrorHandler((error, req, reply) => {
   if (status >= 500) req.log.error({ err: error }, 'Unhandled error');
   void reply.status(status).send({ error: status >= 500 ? 'Internal Server Error' : error.name, message: status >= 500 ? 'Internal server error' : error.message });
 });
+
+if (process.env['OAUTH_MOCK_URL']) server.log.warn('OAUTH_MOCK_URL is set: OAuth providers go to a test mock, not the real identity providers');
 
 try {
   await server.listen({ port: config.PORT, host: '0.0.0.0' });

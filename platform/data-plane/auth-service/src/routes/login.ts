@@ -10,6 +10,7 @@ import {
 import { normalizePhone } from '../lib/sms.js';
 import { captchaBlocked } from '../lib/captcha.js';
 import { refreshSession } from './refresh.js';
+import { idTokenGrant, pkceGrant } from './oauth.js';
 
 const passwordGrant = z.union([
   z.object({ email: z.string().email().max(255), password: z.string().min(1).max(128) }),
@@ -66,11 +67,13 @@ export default async function (server: FastifyInstance) {
     return reply.send(session);
   }
 
-  // Supabase-compatible: POST /token?grant_type=password|refresh_token
+  // Supabase-compatible: POST /token?grant_type=password|refresh_token|id_token|pkce
   server.post('/v1/:projectId/token', { preValidation: [projectContext] }, async (req, reply) => {
     const grant = (req.query as { grant_type?: string }).grant_type ?? (req.body as any)?.grant_type ?? 'password';
     if (grant === 'password') return passwordLogin(req, reply);
     if (grant === 'refresh_token') return refreshSession(req, reply);
+    if (grant === 'id_token') return idTokenGrant(req, reply);
+    if (grant === 'pkce') return pkceGrant(req, reply);
     return reply.status(400).send({ error: 'Bad Request', message: `Unsupported grant_type '${grant}'` });
   });
 

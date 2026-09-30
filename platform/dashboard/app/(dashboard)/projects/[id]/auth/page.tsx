@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { api, formatDate, timeAgo } from '@/lib/api';
-import { useProjectId } from '@/lib/hooks';
+import { useProject, useProjectId } from '@/lib/hooks';
 import { Card, ErrorBox, PageHeader, Tabs } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -104,12 +104,31 @@ function Users({ projectId }: { projectId: string }) {
   );
 }
 
+const OAUTH_PROVIDERS: { id: string; label: string; url?: string; apple?: boolean }[] = [
+  { id: 'google', label: 'Google' },
+  { id: 'apple', label: 'Apple', apple: true },
+  { id: 'github', label: 'GitHub', url: 'GitHub Enterprise URL (optional)' },
+  { id: 'azure', label: 'Microsoft (Azure AD)', url: 'Tenant URL (optional, e.g. https://login.microsoftonline.com/<tenant>)' },
+  { id: 'facebook', label: 'Facebook' },
+  { id: 'gitlab', label: 'GitLab', url: 'Self-hosted GitLab URL (optional)' },
+  { id: 'bitbucket', label: 'Bitbucket' },
+  { id: 'discord', label: 'Discord' },
+  { id: 'linkedin_oidc', label: 'LinkedIn' },
+  { id: 'slack_oidc', label: 'Slack' },
+  { id: 'x', label: 'X / Twitter (OAuth 2.0)' },
+  { id: 'spotify', label: 'Spotify' },
+  { id: 'twitch', label: 'Twitch' },
+  { id: 'keycloak', label: 'Keycloak / OIDC', url: 'Realm URL (e.g. https://sso.example.com/realms/main)' },
+];
+
 function Settings({ projectId }: { projectId: string }) {
   const toast = useToast();
   const { data } = useQuery({ queryKey: ['auth-config', projectId], queryFn: () => api.get(`/projects/${projectId}/auth-config`) });
   const [cfg, setCfg] = useState<any>(null);
   useEffect(() => { if (data) setCfg(data); }, [data]);
   const save = useMutation({ mutationFn: () => api.put(`/projects/${projectId}/auth-config`, { ...cfg, redirect_urls: (cfg.redirect_urls_text ?? cfg.redirect_urls.join('\n')).split('\n').map((s: string) => s.trim()).filter(Boolean), redirect_urls_text: undefined }), onSuccess: (r) => { setCfg(r); toast.success('Auth settings saved'); } });
+  const { data: project } = useProject(projectId);
+  const authUrl = project?.endpoints?.auth_url ?? '<auth url>';
   if (!cfg) return <p className="text-sm text-gray-500">Loading…</p>;
   const set = (k: string, v: any) => setCfg({ ...cfg, [k]: v });
   const prov = (p: string, k: string, v: any) => setCfg({ ...cfg, providers: { ...cfg.providers, [p]: { ...cfg.providers?.[p], [k]: v } } });
@@ -140,15 +159,38 @@ function Settings({ projectId }: { projectId: string }) {
           </div>
         </div>
       </Card>
-      <Card title="OAuth providers" description="Callback URL: <auth url>/callback">
-        <div className="grid gap-6 md:grid-cols-2">
-          {['google', 'github'].map((p) => (
-            <div key={p} className="space-y-2 rounded-md border border-gray-200 p-3">
-              <label className="flex items-center gap-2 text-sm font-medium capitalize"><input type="checkbox" checked={!!cfg.providers?.[p]?.enabled} onChange={(e) => prov(p, 'enabled', e.target.checked)} />{p}</label>
-              <Input label="Client ID" value={cfg.providers?.[p]?.client_id ?? ''} onChange={(e) => prov(p, 'client_id', e.target.value)} />
-              <Input label="Client secret" type="password" value={cfg.providers?.[p]?.client_secret ?? ''} onChange={(e) => prov(p, 'client_secret', e.target.value)} />
-            </div>
-          ))}
+      <Card title="OAuth providers" description={`Callback URL to register with each provider: ${authUrl}/callback`}>
+        <div className="grid gap-4 md:grid-cols-2">
+          {OAUTH_PROVIDERS.map(({ id: p, label, url, apple }) => {
+            const c = cfg.providers?.[p] ?? {};
+            return (
+              <details key={p} className="rounded-md border border-gray-200 p-3" open={!!c.enabled}>
+                <summary className="cursor-pointer text-sm font-medium">{label}{c.enabled && <span className="ml-2 text-xs text-green-600">enabled</span>}</summary>
+                <div className="mt-3 space-y-2">
+                  <label className="flex items-center gap-2 text-sm"><input type="checkbox" aria-label={`Enable ${label}`} checked={!!c.enabled} onChange={(e) => prov(p, 'enabled', e.target.checked)} />Enabled</label>
+                  <Input label={apple ? 'Services ID (client ID)' : 'Client ID'} value={c.client_id ?? ''} onChange={(e) => prov(p, 'client_id', e.target.value)} />
+                  {apple ? (
+                    <>
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-gray-700" htmlFor={`${p}-secret`}>Secret key (.p8 contents) or a client-secret JWT</label>
+                        <textarea id={`${p}-secret`} rows={3} className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs" value={c.client_secret ?? ''} onChange={(e) => prov(p, 'client_secret', e.target.value)} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input label="Team ID" value={c.team_id ?? ''} onChange={(e) => prov(p, 'team_id', e.target.value)} />
+                        <Input label="Key ID" value={c.key_id ?? ''} onChange={(e) => prov(p, 'key_id', e.target.value)} />
+                      </div>
+                    </>
+                  ) : (
+                    <Input label="Client secret" type="password" value={c.client_secret ?? ''} onChange={(e) => prov(p, 'client_secret', e.target.value)} />
+                  )}
+                  {url && <Input label={url} value={c.url ?? ''} onChange={(e) => prov(p, 'url', e.target.value)} />}
+                  {['google', 'apple', 'azure', 'facebook', 'keycloak'].includes(p) && (
+                    <Input label="Other client IDs for native sign-in (comma-separated)" value={c.additional_client_ids ?? ''} onChange={(e) => prov(p, 'additional_client_ids', e.target.value)} />
+                  )}
+                </div>
+              </details>
+            );
+          })}
         </div>
       </Card>
       <Card title="Phone (SMS)" description="Sign-in with one-time SMS codes and phone + password. Numbers are stored in international format (+919876543210).">
