@@ -135,8 +135,8 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
-      DB_USER: ${POSTGRES_USER:-postgres}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_USER: odb_api   # the only pgbouncer client is api-service
+      DB_PASSWORD: ${DB_PASSWORD_API}
       DB_NAME: ${POSTGRES_DB:-owndatabase}
       LISTEN_PORT: "6432"
       AUTH_TYPE: scram-sha-256
@@ -206,6 +206,8 @@ services:
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?SECRET_ENCRYPTION_KEY is required}
       # secrets vault (docs/vault.md): master keys + the tokens services use to read secrets
       VAULT_MASTER_KEYS: ${VAULT_MASTER_KEYS:-}
+      # passwords of the services' least-privilege database roles (migration 023)
+      SERVICE_DB_PASSWORDS: odb_auth:${DB_PASSWORD_AUTH:?DB_PASSWORD_AUTH is required (make generate-secrets)},odb_api:${DB_PASSWORD_API:?DB_PASSWORD_API is required (make generate-secrets)},odb_realtime:${DB_PASSWORD_REALTIME:?DB_PASSWORD_REALTIME is required (make generate-secrets)},odb_storage:${DB_PASSWORD_STORAGE:?DB_PASSWORD_STORAGE is required (make generate-secrets)},odb_worker:${DB_PASSWORD_WORKER:?DB_PASSWORD_WORKER is required (make generate-secrets)},odb_cron:${DB_PASSWORD_CRON:?DB_PASSWORD_CRON is required (make generate-secrets)}
       VAULT_SERVICE_TOKENS: auth-service:${VAULT_TOKEN_AUTH:?VAULT_TOKEN_AUTH is required (make generate-secrets)},api-service:${VAULT_TOKEN_API:?VAULT_TOKEN_API is required},queue-worker:${VAULT_TOKEN_QUEUE:?VAULT_TOKEN_QUEUE is required}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
       PUBLIC_URL: ${SITE_URL:-http://localhost}
@@ -295,7 +297,8 @@ services:
       OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3002
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      # least-privilege role (migration 023)
+      DATABASE_URL: postgresql://odb_auth:${DB_PASSWORD_AUTH}@postgres:5432/${POSTGRES_DB:-owndatabase}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}  # MFA seeds only
@@ -341,6 +344,8 @@ services:
     networks:
       - owndatabase
     depends_on:
+      control-api:
+        condition: service_healthy   # creates the service role logins
       postgres:
         condition: service_healthy
       redis:
@@ -368,8 +373,9 @@ services:
       OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3003
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
-      POOLER_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB:-owndatabase}
+      # least-privilege role (migration 023)
+      DATABASE_URL: postgresql://odb_api:${DB_PASSWORD_API}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      POOLER_URL: postgresql://odb_api:${DB_PASSWORD_API}@pgbouncer:6432/${POSTGRES_DB:-owndatabase}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
       # no encryption key here: secrets come from the vault (docs/vault.md)
@@ -385,6 +391,8 @@ services:
       - owndatabase
       - functions_rpc
     depends_on:
+      control-api:
+        condition: service_healthy   # creates the service role logins
       postgres:
         condition: service_healthy
       pgbouncer:
@@ -447,7 +455,8 @@ services:
       OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3004
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      # least-privilege role (migration 023)
+      DATABASE_URL: postgresql://odb_realtime:${DB_PASSWORD_REALTIME}@postgres:5432/${POSTGRES_DB:-owndatabase}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -456,6 +465,8 @@ services:
     networks:
       - owndatabase
     depends_on:
+      control-api:
+        condition: service_healthy   # creates the service role logins
       postgres:
         condition: service_healthy
       redis:
@@ -483,7 +494,8 @@ services:
       OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3005
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      # least-privilege role (migration 023)
+      DATABASE_URL: postgresql://odb_storage:${DB_PASSWORD_STORAGE}@postgres:5432/${POSTGRES_DB:-owndatabase}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
       STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
@@ -503,6 +515,8 @@ services:
     networks:
       - owndatabase
     depends_on:
+      control-api:
+        condition: service_healthy   # creates the service role logins
       postgres:
         condition: service_healthy
       minio:
@@ -563,7 +577,8 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3006
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      # least-privilege role (migration 023)
+      DATABASE_URL: postgresql://odb_worker:${DB_PASSWORD_WORKER}@postgres:5432/${POSTGRES_DB:-owndatabase}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
       # no encryption key here: secrets come from the vault (docs/vault.md)
@@ -581,6 +596,8 @@ services:
     networks:
       - owndatabase
     depends_on:
+      control-api:
+        condition: service_healthy   # creates the service role logins
       postgres:
         condition: service_healthy
       redis:
@@ -601,7 +618,8 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3007
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-owndatabase}
+      # least-privilege role (migration 023)
+      DATABASE_URL: postgresql://odb_cron:${DB_PASSWORD_CRON}@postgres:5432/${POSTGRES_DB:-owndatabase}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:

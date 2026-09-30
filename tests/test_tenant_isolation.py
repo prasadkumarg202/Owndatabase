@@ -83,3 +83,33 @@ def test_deleting_a_project_drops_its_roles(owner):
     slug = owner.get(f"/projects/{p.id}").json()["slug"]
     assert owner.delete(f"/projects/{p.id}?confirm={slug}").status_code == 200
     assert psql(f"select count(*) from pg_roles where rolname = '{r}'") == "0"
+
+
+SERVICE_ROLES = ("odb_auth", "odb_api", "odb_storage", "odb_realtime", "odb_worker", "odb_cron")
+
+
+def test_services_connect_with_least_privilege_roles():
+    for container, user in (("owndatabase-auth", "odb_auth"), ("owndatabase-api", "odb_api"), ("owndatabase-storage", "odb_storage"),
+                            ("owndatabase-realtime", "odb_realtime"), ("owndatabase-queue-worker", "odb_worker"), ("owndatabase-cron-scheduler", "odb_cron")):
+        url = subprocess.run(["docker", "exec", container, "printenv", "DATABASE_URL"], capture_output=True, text=True).stdout
+        assert url.startswith(f"postgresql://{user}:"), container
+    for r in SERVICE_ROLES:
+        assert psql(f"select rolsuper or rolbypassrls or rolcreaterole or rolcreatedb from pg_roles where rolname = '{r}'") == "f", r
+        # nobody but the control API reads secrets, keys or platform users
+        for t in ("control_plane.secrets", "control_plane.vault_keys", "control_plane.platform_users", "control_plane.backups" if r != "odb_cron" else "control_plane.secrets"):
+            assert psql(f"select has_table_privilege('{r}', '{t}', 'SELECT')") == "f", (r, t)
+    # each service reaches only its own data
+    assert psql("select has_table_privilege('odb_auth', 'auth.user_passwords', 'SELECT')") == "t"
+    assert psql("select has_table_privilege('odb_storage', 'auth.user_passwords', 'SELECT')") == "f"
+    assert psql("select has_table_privilege('odb_auth', 'storage.objects', 'SELECT')") == "f"
+    assert psql("select has_table_privilege('odb_api', 'auth.users', 'SELECT')") == "f"
+    assert psql("select has_column_privilege('odb_api', 'control_plane.api_keys', 'key_hash', 'UPDATE')") == "f"
+
+
+def test_api_services_can_switch_into_project_roles_but_hold_none_of_their_access(two):
+    a, _ = two
+    for svc in ("odb_api", "odb_realtime"):
+        assert psql(f"select has_schema_privilege('{svc}', '{a.schema}', 'USAGE')") == "f", svc
+        assert psql(f"select pg_has_role('{svc}', '{role(a.schema, 'service_role')}', 'SET')") == "t", svc
+    for svc in ("odb_auth", "odb_storage", "odb_worker", "odb_cron"):
+        assert psql(f"select pg_has_role('{svc}', '{role(a.schema, 'service_role')}', 'SET')") == "f", svc

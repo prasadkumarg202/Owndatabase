@@ -9,6 +9,7 @@ import { db, testConnection } from './lib/db.js';
 import { redis } from './lib/redis.js';
 import { runMigrations } from './lib/migrate.js';
 import { migrateAll } from './lib/vault.js';
+import { ensureServiceRoles } from './lib/service-roles.js';
 import { closeQueues } from './lib/queues.js';
 import { shutdownTracing } from './lib/tracing.js';
 import { startLimitWatcher, stopLimitWatcher } from './routes/limits.js';
@@ -32,6 +33,9 @@ if (config.migrateOnStart) {
     process.exit(1);
   }
 }
+
+// least-privilege logins for the services (migration 023)
+await ensureServiceRoles();
 
 // seal plaintext / legacy secrets, re-wrap data keys to the active master key (docs/vault.md)
 await migrateAll();

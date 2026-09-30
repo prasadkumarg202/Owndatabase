@@ -241,6 +241,26 @@ Each project has its own schema and its own database roles:
 - Deleting a project drops its roles. Migration 022 converted existing projects;
   `tests/test_tenant_isolation.py` checks these rules.
 
+### Service database roles
+
+Each service connects with its own least-privilege login (migration 023; passwords
+`DB_PASSWORD_*` in `.env`, applied by the control API on start):
+
+| Role | Service | Can use |
+|---|---|---|
+| `odb_auth` | auth-service | `auth.*`; reads projects / API keys / custom domains |
+| `odb_storage` | storage-api | `storage.*`; same reads |
+| `odb_api` | api-service, pgbouncer | functions + function logs; `SET ROLE` into project API roles |
+| `odb_realtime` | realtime-service | `SET ROLE` into project API roles |
+| `odb_worker` | queue-worker | database-webhook deliveries (project SQL runs as the project owner) |
+| `odb_cron` | cron-scheduler | cron jobs, scheduled backups |
+
+- None of these roles can read secrets, vault keys or platform users.
+- `odb_api` and `odb_realtime` hold project roles with `INHERIT FALSE`: they can act as a project
+  only by switching into its role for a request, and have no standing access to project data.
+- The control API and the backup worker keep the superuser; they create schemas and roles and
+  run `pg_dump`.
+
 ## Secret Management
 
 ### Storage

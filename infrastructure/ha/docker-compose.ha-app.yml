@@ -69,7 +69,7 @@ services:
   # REST reads go to the replicas (HAProxy :5433) while they keep up; see lib/replica.ts
   api-service:
     environment:
-      READ_REPLICA_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5433/${POSTGRES_DB:-owndatabase}
+      READ_REPLICA_URL: postgresql://odb_api:${DB_PASSWORD_API}@postgres:5433/${POSTGRES_DB:-owndatabase}
 
   pgbackrest:
     profiles: ["single-node"]
