@@ -562,10 +562,17 @@ server.post('/v1/:projectId/object/list/:bucket', async (req, reply) => {
     const a = await ctx(req);
     const b = await getBucket(a.project.id, (req.params as any).bucket);
     const q = z.object({
-      prefix: z.string().default(''), limit: z.number().int().min(1).max(1000).default(100), offset: z.number().int().min(0).default(0),
-      search: z.string().optional(), sortBy: z.object({ column: z.enum(['name', 'created_at', 'updated_at', 'size_bytes']), order: z.enum(['asc', 'desc']) }).optional(),
+      // clients send nulls for unset options (Dart, Swift); Supabase also sorts by last_accessed_at (here: updated_at)
+      prefix: z.string().nullish().transform((v) => v ?? ''),
+      limit: z.coerce.number().int().min(1).max(1000).nullish().transform((v) => v ?? 100),
+      offset: z.coerce.number().int().min(0).nullish().transform((v) => v ?? 0),
+      search: z.string().nullish().transform((v) => v ?? undefined),
+      sortBy: z.object({
+        column: z.enum(['name', 'created_at', 'updated_at', 'size_bytes', 'last_accessed_at']).nullish().transform((v) => (v === 'last_accessed_at' ? 'updated_at' : v ?? 'name')),
+        order: z.string().nullish().transform((v) => (String(v ?? 'asc').toLowerCase() === 'desc' ? 'desc' as const : 'asc' as const)),
+      }).nullish().transform((v) => v ?? undefined),
     }).safeParse(req.body ?? {});
-    if (!q.success) throw new HttpError(400, 'Invalid list options');
+    if (!q.success) throw new HttpError(400, `Invalid list options: ${q.error.errors[0]?.path.join('.')} ${q.error.errors[0]?.message}`);
     const prefix = q.data.prefix.replace(/^\/+/, '');
     const pfx = prefix && !prefix.endsWith('/') ? prefix + '/' : prefix;
     const search = q.data.search ? `%${q.data.search.replace(/[%_]/g, '\\$&')}%` : null;

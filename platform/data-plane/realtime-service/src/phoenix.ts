@@ -110,7 +110,7 @@ export function phoenixDeliver(c: PhxClient, msg: Record<string, any>, deps: Phx
     }
   } else if (msg['type'] === 'broadcast') {
     for (const ch of st.channels.values()) {
-      if (ch.name === msg['channel']) out(c, ch.topic, 'broadcast', { type: 'broadcast', event: msg['event'], payload: msg['payload'] ?? {} });
+      if (ch.name === msg['channel']) out(c, ch.topic, 'broadcast', msg['raw'] ?? { type: 'broadcast', event: msg['event'], payload: msg['payload'] ?? {} });
     }
   } else if (msg['type'] === 'presence') {
     for (const ch of st.channels.values()) {
@@ -245,10 +245,13 @@ export async function phoenixHandle(c: PhxClient, msg: any, deps: PhxDeps) {
       return msg.ref ? reply(c, msg, 'ok') : undefined;
     case 'broadcast': {
       const p = msg.payload ?? {};
-      const body = JSON.stringify(p.payload ?? {});
-      if (body.length > 64 * 1024) return reply(c, msg, 'error', { reason: 'Payload too large (64 KB max)' });
+      // supabase-js nests the message ({ type, event, payload }); the Dart / Swift clients put its fields next to
+      // type and event. Supabase forwards the push unchanged, so each client gets back what it sends.
+      const { type: _t, event: _e, ...flat } = p;
+      const data = p.payload !== undefined ? p.payload : flat;
+      if (JSON.stringify(p).length > 64 * 1024) return reply(c, msg, 'error', { reason: 'Payload too large (64 KB max)' });
       await deps.publish(c.project.id, `broadcast:${name}`, {
-        type: 'broadcast', channel: name, event: String(p.event ?? ''), payload: p.payload ?? {},
+        type: 'broadcast', channel: name, event: String(p.event ?? ''), payload: data, raw: p,
         sender_id: c.id, user_id: c.userId, timestamp: new Date().toISOString(),
       }, ch.broadcastSelf ? undefined : c.id);
       return ch.broadcastAck || msg.ref ? reply(c, msg, 'ok') : undefined;

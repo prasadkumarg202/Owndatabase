@@ -1,0 +1,7 @@
+name: odb_supabase_dart_compat
+description: The official Supabase Dart client (used by supabase_flutter) against an OwnDatabase project.
+publish_to: none
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+dependencies:
+  supabase: ^2.6.0

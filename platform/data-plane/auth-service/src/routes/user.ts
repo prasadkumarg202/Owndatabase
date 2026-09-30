@@ -24,7 +24,12 @@ export default async function (server: FastifyInstance) {
     const user = await getUserById(req.ctx.project.id, req.ctx.userId!);
     if (!user) return reply.status(404).send({ error: 'Not Found', message: 'User not found' });
     const factors = await db`SELECT id, type AS factor_type, status, friendly_name, created_at FROM auth.mfa_factors WHERE user_id = ${user.id}`;
-    const identities = await db`SELECT provider, provider_id, created_at, last_sign_in_at FROM auth.identities WHERE user_id = ${user.id}`;
+    // GoTrue's identity shape (the Dart / Swift clients parse it strictly); provider_id kept for older callers
+    const identities = await db`
+      SELECT provider_id AS id, id AS identity_id, user_id, COALESCE(identity_data, '{}'::jsonb) AS identity_data, provider, provider_id,
+             identity_data->>'email' AS email, created_at, COALESCE(last_sign_in_at, created_at) AS last_sign_in_at,
+             COALESCE(updated_at, created_at) AS updated_at
+      FROM auth.identities WHERE user_id = ${user.id} ORDER BY created_at`;
     return reply.send({ ...publicUser(user), factors, identities, aal: req.ctx.claims?.['aal'] ?? 'aal1', user: publicUser(user) });
   });
 

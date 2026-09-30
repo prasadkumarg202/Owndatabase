@@ -79,7 +79,9 @@ const clients = new Map<string, Client>();
 
 function send(c: Client, msg: Record<string, unknown>) {
   if (c.phoenix) return phoenixDeliver(c, msg, phxDeps);
-  if (c.socket.readyState === 1) c.socket.send(JSON.stringify(msg));
+  // `raw` is the original Supabase-protocol push, only for Phoenix clients
+  const { raw: _raw, ...native } = msg;
+  if (c.socket.readyState === 1) c.socket.send(JSON.stringify(native));
 }
 
 // ── Catalog helpers (cached) ────────────────────────────────────────────────
