@@ -157,6 +157,7 @@ export default async function (server: FastifyInstance) {
       return reply.status(200).send({ user: publicUser(user), session: null, message: 'Check your email to confirm your account' });
     }
     const session = await issueSession(project, user, req);
-    return reply.status(200).send({ ...session, session: { access_token: session.access_token, refresh_token: session.refresh_token } });
+    // a session, as GoTrue returns it (supabase-js / supabase-py parse it as one)
+    return reply.status(200).send(session);
   });
 }

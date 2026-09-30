@@ -59,7 +59,7 @@ export const ARGON2 = { type: 2 /* argon2id */, memoryCost: 19456, timeCost: 2, 
 export interface UserRow {
   id: string; email: string | null; phone: string | null; role: string; email_verified: boolean; phone_verified: boolean; is_anonymous: boolean;
   raw_user_meta_data: Record<string, unknown>; raw_app_meta_data: Record<string, unknown>;
-  created_at: Date; last_sign_in_at: Date | null; banned_until: Date | null; confirmed_at: Date | null;
+  created_at: Date; updated_at?: Date; last_sign_in_at: Date | null; banned_until: Date | null; confirmed_at: Date | null;
 }
 
 export function publicUser(u: UserRow) {
@@ -68,6 +68,10 @@ export function publicUser(u: UserRow) {
     is_anonymous: !!u.is_anonymous,
     user_metadata: u.raw_user_meta_data ?? {}, app_metadata: u.raw_app_meta_data ?? {},
     created_at: u.created_at, last_sign_in_at: u.last_sign_in_at, confirmed_at: u.confirmed_at,
+    // GoTrue fields the Supabase clients expect
+    aud: 'authenticated', updated_at: u.updated_at ?? u.created_at,
+    email_confirmed_at: u.email && u.email_verified ? (u.confirmed_at ?? u.created_at) : null,
+    phone_confirmed_at: u.phone && u.phone_verified ? (u.confirmed_at ?? u.created_at) : null,
   };
 }
 

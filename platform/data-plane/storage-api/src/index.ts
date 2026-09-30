@@ -635,7 +635,7 @@ server.post('/v1/:projectId/object/sign/:bucket/*', async (req, reply) => {
     const b = await getBucket(a.project.id, bucket);
     const obj = await findObject(b, path);
     if (!obj || !canRead(a, b, obj['owner'] as string | null)) throw new HttpError(404, 'Object not found');
-    const body = z.object({ expiresIn: z.number().int().min(1).max(7 * 86400).default(3600), transform: z.record(z.unknown()).optional() }).safeParse(req.body ?? {});
+    const body = z.object({ expiresIn: z.coerce.number().int().min(1).max(7 * 86400).default(3600), transform: z.record(z.unknown()).optional() }).safeParse(req.body ?? {});
     if (!body.success) throw new HttpError(400, 'expiresIn must be between 1 and 604800 seconds');
     const token = await signToken(a.project.id, bucket, path, body.data.expiresIn, body.data.transform);
     await db`

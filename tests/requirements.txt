@@ -7,3 +7,4 @@ PyJWT>=2.8
 cryptography>=42
 signxml>=4.0
 lxml>=5.0
+supabase>=2.9
