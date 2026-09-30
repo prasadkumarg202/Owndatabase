@@ -14,6 +14,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { config } from '../config.js';
 import { db } from './db.js';
+import { billingProfile, computeGst, gstSettings } from './gst.js';
 import { redis } from './redis.js';
 import { logger } from './logger.js';
 
@@ -164,16 +165,28 @@ async function nextInvoiceNumber() {
   return `ODB-${new Date().getUTCFullYear()}-${String(r!['n']).padStart(6, '0')}`;
 }
 
-export async function createInvoice(orgId: string, kind: 'period' | 'upgrade', plan: Plan, start: string, end: string, lines: InvoiceLine[]) {
-  const total = lines.reduce((s, l) => s + l.amount, 0);
+export async function createInvoice(orgId: string, kind: 'period' | 'upgrade', plan: Plan, start: string, end: string, lines: InvoiceLine[]): Promise<Record<string, any>> {
+  const subtotal = lines.reduce((s, l) => s + l.amount, 0);
+  // GST (docs/billing.md → GST): tax on top of the taxable value, with seller and customer snapshots
+  const gst = await gstSettings();
+  const profile = await billingProfile(orgId);
+  const [org] = await db`SELECT name FROM control_plane.organizations WHERE id = ${orgId}`;
+  const tax = gst ? computeGst(gst, profile, subtotal) : null;
+  const taxTotal = tax ? tax.lines.reduce((s, t) => s + t.amount, 0) : 0;
+  const total = subtotal + taxTotal;
+  const buyer = profile ? { ...profile, organization: org?.['name'] ?? null } : { organization: org?.['name'] ?? null };
   const [inv] = await db`
-    INSERT INTO control_plane.invoices (organization_id, number, kind, plan_id, period_start, period_end, currency, lines, total, status, provider, paid_at)
+    INSERT INTO control_plane.invoices (organization_id, number, kind, plan_id, period_start, period_end, currency, lines, total, status, provider, paid_at,
+                                        subtotal, tax_total, tax_lines, tax_note, place_of_supply, sac_code, seller, buyer)
     VALUES (${orgId}, ${await nextInvoiceNumber()}, ${kind}, ${plan.id}, ${start}, ${end}, ${plan.currency}, ${db.json(lines as any)}, ${total},
-            ${total === 0 ? 'paid' : 'open'}, ${config.billingProvider}, ${total === 0 ? new Date() : null})
+            ${total === 0 ? 'paid' : 'open'}, ${config.billingProvider}, ${total === 0 ? new Date() : null},
+            ${subtotal}, ${taxTotal}, ${db.json((tax?.lines ?? []) as any)}, ${tax?.note ?? null}, ${tax?.placeOfSupply ?? null},
+            ${gst?.sac_code ?? null}, ${gst ? db.json(gst as any) : null}, ${db.json(buyer as any)})
     RETURNING *`;
   if (total > 0) await attachPaymentLink(inv!).catch((err) => logger.warn({ err: (err as Error).message, invoice: inv!['id'] }, 'Payment link failed'));
   const [fresh] = await db`SELECT * FROM control_plane.invoices WHERE id = ${inv!['id'] as string}`;
-  return fresh!;
+  // BIGINT columns arrive as strings
+  return { ...fresh!, total: Number(fresh!['total']), subtotal: fresh!['subtotal'] === null ? null : Number(fresh!['subtotal']), tax_total: Number(fresh!['tax_total']) };
 }
 
 /** Monthly invoices for a finished period (idempotent per organization and period). */

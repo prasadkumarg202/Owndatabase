@@ -91,6 +91,62 @@ function Members({ orgId }: { orgId: string }) {
 const money = (minor: number, currency: string) =>
   new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase() }).format(minor / 100);
 
+/** The printable (tax) invoice needs the user's token, so it is fetched and opened as a blob. */
+async function openInvoice(orgId: string, invoiceId: string) {
+  const html = await api.get(`/organizations/${orgId}/billing/invoices/${invoiceId}/document`);
+  window.open(URL.createObjectURL(new Blob([html], { type: 'text/html' })), '_blank', 'noopener');
+}
+
+/** Legal name, GSTIN and address printed on invoices; the state decides CGST+SGST or IGST (docs/billing.md). */
+function BillingDetails({ orgId }: { orgId: string }) {
+  const toast = useToast();
+  const q = useQuery({ queryKey: ['billing-profile', orgId], queryFn: () => api.get(`/organizations/${orgId}/billing/profile`) });
+  const [f, setF] = useState<any>(null);
+  const cur = f ?? { country: 'IN', ...(q.data?.profile ?? {}) };
+  const set = (k: string, v: any) => setF({ ...cur, [k]: v });
+  const save = useMutation({
+    mutationFn: () => api.put(`/organizations/${orgId}/billing/profile`, {
+      legal_name: cur.legal_name ?? '', gstin: cur.gstin || null, address_line1: cur.address_line1 ?? '', address_line2: cur.address_line2 ?? '',
+      city: cur.city ?? '', postal_code: cur.postal_code ?? '', state_code: cur.state_code || null, country: cur.country || 'IN', email: cur.email || null,
+    }),
+    onSuccess: () => { toast.success('Billing details saved'); setF(null); q.refetch(); },
+    onError: (e) => toast.error(e),
+  });
+  if (!q.data) return null;
+  const states = Object.entries(q.data.states ?? {}) as [string, string][];
+  return (
+    <div className="rounded-md border border-gray-200 p-3" data-testid="billing-details">
+      <p className="mb-2 text-sm font-medium">Billing details <span className="font-normal text-gray-500">(printed on invoices; GSTIN for a GST input tax credit)</span></p>
+      <div className="grid gap-3 md:grid-cols-3">
+        <Input label="Legal name" value={cur.legal_name ?? ''} onChange={(e) => set('legal_name', e.target.value)} />
+        <Input label="GSTIN (optional)" value={cur.gstin ?? ''} onChange={(e) => set('gstin', e.target.value.toUpperCase())} placeholder="29ABCDE1234F1Z5" />
+        <Input label="Billing email" value={cur.email ?? ''} onChange={(e) => set('email', e.target.value)} />
+        <Input label="Address" value={cur.address_line1 ?? ''} onChange={(e) => set('address_line1', e.target.value)} />
+        <Input label="Address line 2" value={cur.address_line2 ?? ''} onChange={(e) => set('address_line2', e.target.value)} />
+        <Input label="City" value={cur.city ?? ''} onChange={(e) => set('city', e.target.value)} />
+        <Input label="Postal code" value={cur.postal_code ?? ''} onChange={(e) => set('postal_code', e.target.value)} />
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-gray-700" htmlFor="bill-country">Country</label>
+          <select id="bill-country" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" value={cur.country ?? 'IN'} onChange={(e) => set('country', e.target.value)}>
+            <option value="IN">India</option>
+            {['US', 'GB', 'AE', 'SG', 'DE', 'FR', 'CA', 'AU', 'NL', 'JP'].map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        {(cur.country ?? 'IN') === 'IN' && (
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-700" htmlFor="bill-state">State (GST)</label>
+            <select id="bill-state" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" value={cur.state_code ?? ''} onChange={(e) => set('state_code', e.target.value)}>
+              <option value="">—</option>
+              {states.map(([code, name]) => <option key={code} value={code}>{code} {name}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+      <Button size="sm" className="mt-3" onClick={() => save.mutate()} loading={save.isPending} disabled={!cur.legal_name}>Save billing details</Button>
+    </div>
+  );
+}
+
 function Billing({ orgId }: { orgId: string }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -152,10 +208,16 @@ function Billing({ orgId }: { orgId: string }) {
         <DataTable testId="invoices-table" data={d.invoices} empty="No invoices yet" columns={[
           { key: 'number', label: 'Invoice' },
           { key: 'period_start', label: 'Period', render: (i: any) => `${String(i.period_start).slice(0, 10)} – ${String(i.period_end).slice(0, 10)}` },
-          { key: 'total', label: 'Total', render: (i: any) => money(i.total, i.currency) },
+          { key: 'total', label: 'Total', render: (i: any) => <span title={i.tax_total ? `${money(i.subtotal, i.currency)} + ${money(i.tax_total, i.currency)} GST` : undefined}>{money(i.total, i.currency)}</span> },
           { key: 'status', label: 'Status', render: (i: any) => <Badge tone={i.status === 'paid' ? 'green' : i.status === 'open' ? 'yellow' : 'gray'}>{i.status}</Badge> },
-          { key: 'x', label: '', render: (i: any) => i.status === 'open' && i.payment_url && <a className="text-xs text-blue-600 hover:underline" href={i.payment_url} target="_blank" rel="noopener noreferrer">Pay</a> },
+          { key: 'x', label: '', render: (i: any) => (
+            <span className="flex gap-3">
+              <button type="button" className="text-xs text-blue-600 hover:underline" data-testid={`invoice-doc-${i.number}`} onClick={() => openInvoice(orgId, i.id)}>View</button>
+              {i.status === 'open' && i.payment_url && <a className="text-xs text-blue-600 hover:underline" href={i.payment_url} target="_blank" rel="noopener noreferrer">Pay</a>}
+            </span>
+          ) },
         ]} />
+        <BillingDetails orgId={orgId} />
       </div>
     </Card>
   );

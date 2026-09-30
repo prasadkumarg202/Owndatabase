@@ -68,3 +68,39 @@ Webhooks are verified (Stripe signature with a 5-minute tolerance, Razorpay
 HMAC) and processed once per event id. The Stripe and Razorpay payment-link
 calls are not exercised by the test suite (they need live keys); the webhook
 handling is.
+
+## GST (India)
+
+Turn on tax invoices by entering the seller's details once (platform admin):
+
+```bash
+curl -X PUT "$API/api/admin/billing/gst" -H "authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' -d '{
+  "enabled": true, "legal_name": "Your Company Pvt Ltd", "gstin": "29ABCDE1234F1Z5",
+  "address": "12 MG Road\nBengaluru 560001", "email": "billing@example.com",
+  "sac_code": "998315", "rate": 18, "lut_number": "AD2909250001234"
+}'
+```
+
+Customers enter their **billing details** on the organization's Billing page
+(`PUT /api/organizations/:id/billing/profile`): legal name, optional GSTIN (its check digit is
+validated, and it sets the state), address, and state or country. Every new invoice then carries tax on
+top of the taxable value:
+
+| Customer | Tax |
+|---|---|
+| Same state as the seller (or no billing details) | CGST 9% + SGST 9% |
+| Another Indian state | IGST 18% |
+| Outside India, with `lut_number` set | Zero-rated export: "Supply meant for export under LUT … without payment of IGST" |
+| Outside India, without an LUT | IGST 18% |
+
+- **Invoice record:** each invoice stores its taxable value (`subtotal`), `tax_lines`, `tax_total`,
+  place of supply and SAC code, plus a snapshot of the seller's and customer's details. Later edits to
+  either don't change issued invoices.
+- **Payment links:** these charge the total including tax.
+- **Viewing:** the invoice opens as a printable Tax Invoice from the dashboard (**View**) or
+  `GET /api/organizations/:id/billing/invoices/:invoiceId/document`. Print it to PDF from the
+  browser. It shows the seller and buyer GSTINs, place of supply, reverse charge, SAC per line, the
+  CGST/SGST/IGST breakdown, the SAC summary, the amount in words (lakh/crore) and the authorised
+  signatory.
+- **Invoice numbers:** `ODB-<year>-<serial>` (15 characters), unique and sequential, within GST's
+  16-character limit.

@@ -7,10 +7,14 @@
  *   POST /api/organizations/:id/billing/subscribe  { plan_id }  free → at once; paid → upgrade invoice, applied when paid
  *   POST /api/organizations/:id/billing/cancel                  back to Free at the end of the period
  *   POST /api/organizations/:id/billing/invoices/:invoiceId/pay (re)create the payment link
+ *   GET  /api/organizations/:id/billing/invoices/:invoiceId/document   printable (tax) invoice, HTML
+ *   GET|PUT /api/organizations/:id/billing/profile              billing details: legal name, GSTIN, address, state
  *
  * Platform admins:
  *   PUT  /api/admin/billing/organizations/:id/plan { plan_id }  assign a plan (no payment)
  *   PUT  /api/admin/billing/plans/:planId                       edit a plan
+ *   GET|PUT /api/admin/billing/gst                              GST seller details (docs/billing.md -> GST)
+ *   GET  /api/admin/billing/invoices/:invoiceId/document
  *   POST /api/admin/billing/usage/snapshot                      record today's usage now
  *   POST /api/admin/billing/invoices/generate { period: 'YYYY-MM' }
  *   POST /api/admin/billing/invoices/:invoiceId/mark-paid | void
@@ -28,6 +32,7 @@ import {
   applyPlan, attachPaymentLink, billingEnabled, setBillingEnabled, createInvoice, generatePeriodInvoices, getPlan, markInvoicePaid, monthBounds, orgUsage,
   priceLines, snapshotUsage, subscriptionFor, verifyRazorpay, verifyStripe,
 } from '../lib/billing.js';
+import { billingProfile, GST_STATES, gstinError, gstSettings, renderInvoiceHtml } from '../lib/gst.js';
 
 const tags = { tags: ['billing'], security: [{ bearerAuth: [] }] };
 const uuid = /^[0-9a-f-]{36}$/i;
@@ -67,15 +72,80 @@ export const billingRoutes: FastifyPluginAsync = async (server: FastifyInstance)
     const { start, end } = monthBounds();
     const usage = await orgUsage(id, start, end);
     const invoices = await db`
-      SELECT id, number, kind, plan_id, period_start, period_end, currency, total, status, payment_url, issued_at, due_at, paid_at, lines
+      SELECT id, number, kind, plan_id, period_start, period_end, currency, total, subtotal, tax_total, tax_lines, status, payment_url,
+             issued_at, due_at, paid_at, lines
       FROM control_plane.invoices WHERE organization_id = ${id} ORDER BY created_at DESC LIMIT 24`;
     return reply.send({
       subscription: sub, plan,
       period: { start, end },
       usage, included: plan.included,
       estimated_lines: priceLines(plan, usage),
-      invoices: invoices.map((i) => ({ ...i, total: Number(i['total']) })),
+      invoices: invoices.map((i) => ({ ...i, total: Number(i['total']), subtotal: i['subtotal'] === null ? null : Number(i['subtotal']), tax_total: Number(i['tax_total']) })),
+      billing_profile: await billingProfile(id),
+      gst: !!(await gstSettings()),
     });
+  });
+
+  // ── billing details and invoice documents ────────────────────────────────
+  const profileSchema = z.object({
+    legal_name: z.string().min(1).max(200),
+    gstin: z.string().toUpperCase().max(15).nullable().optional(),
+    address_line1: z.string().max(200).default(''),
+    address_line2: z.string().max(200).default(''),
+    city: z.string().max(100).default(''),
+    postal_code: z.string().max(20).default(''),
+    state_code: z.string().regex(/^\d{2}$/).nullable().optional(),
+    country: z.string().length(2).toUpperCase().default('IN'),
+    email: z.string().email().max(255).nullable().optional(),
+  });
+
+  server.get('/api/organizations/:id/billing/profile', auth, async (request, reply) => {
+    const id = await guard(request, reply, ['owner', 'admin', 'billing']);
+    if (!id) return;
+    return reply.send({ profile: await billingProfile(id), states: GST_STATES });
+  });
+
+  server.put('/api/organizations/:id/billing/profile', auth, async (request, reply) => {
+    const id = await guard(request, reply, ['owner', 'billing']);
+    if (!id) return;
+    const input = profileSchema.safeParse(request.body);
+    if (!input.success) return reply.status(400).send({ error: 'Validation Error', message: input.error.errors[0]?.message ?? 'Invalid input' });
+    const p = input.data;
+    const gstin = p.gstin ? p.gstin.trim() : null;
+    if (gstin) {
+      const err = gstinError(gstin);
+      if (err) return reply.status(400).send({ error: 'Validation Error', message: err });
+      if (p.country !== 'IN') return reply.status(400).send({ error: 'Validation Error', message: 'A GSTIN is for customers in India (country IN)' });
+    }
+    // an Indian customer's state decides CGST/SGST vs IGST; a GSTIN names its state
+    const state = gstin ? gstin.slice(0, 2) : (p.state_code ?? null);
+    if (p.country === 'IN' && !state) return reply.status(400).send({ error: 'Validation Error', message: 'state_code (GST state code) is required for customers in India' });
+    if (state && !GST_STATES[state]) return reply.status(400).send({ error: 'Validation Error', message: `Unknown GST state code ${state}` });
+    if (gstin && p.state_code && p.state_code !== state) return reply.status(400).send({ error: 'Validation Error', message: `The GSTIN is registered in state ${state}, not ${p.state_code}` });
+    await db`
+      INSERT INTO control_plane.billing_profiles (organization_id, legal_name, gstin, address_line1, address_line2, city, postal_code, state_code, country, email)
+      VALUES (${id}, ${p.legal_name}, ${gstin}, ${p.address_line1}, ${p.address_line2}, ${p.city}, ${p.postal_code}, ${p.country === 'IN' ? state : null}, ${p.country}, ${p.email ?? null})
+      ON CONFLICT (organization_id) DO UPDATE SET legal_name = EXCLUDED.legal_name, gstin = EXCLUDED.gstin, address_line1 = EXCLUDED.address_line1,
+        address_line2 = EXCLUDED.address_line2, city = EXCLUDED.city, postal_code = EXCLUDED.postal_code, state_code = EXCLUDED.state_code,
+        country = EXCLUDED.country, email = EXCLUDED.email, updated_at = NOW()`;
+    await audit(request, 'billing.profile_updated', { type: 'organization', id, orgId: id }, { gstin: !!gstin, country: p.country });
+    return reply.send({ profile: await billingProfile(id) });
+  });
+
+  const sendDocument = async (reply: FastifyReply, inv: Record<string, any>) => reply
+    .header('Content-Type', 'text/html; charset=utf-8')
+    .header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'")
+    .send(renderInvoiceHtml(inv));
+
+  server.get('/api/organizations/:id/billing/invoices/:invoiceId/document', auth, async (request, reply) => {
+    const id = await guard(request, reply, ['owner', 'admin', 'billing']);
+    if (!id) return;
+    const { invoiceId } = request.params as { invoiceId: string };
+    if (!uuid.test(invoiceId)) return reply.status(404).send({ error: 'Not Found', message: 'Invoice not found' });
+    const [inv] = await db`SELECT i.*, o.name AS organization_name FROM control_plane.invoices i JOIN control_plane.organizations o ON o.id = i.organization_id
+                           WHERE i.id = ${invoiceId} AND i.organization_id = ${id}`;
+    if (!inv) return reply.status(404).send({ error: 'Not Found', message: 'Invoice not found' });
+    return sendDocument(reply, inv);
   });
 
   server.post('/api/organizations/:id/billing/subscribe', auth, async (request, reply) => {
@@ -136,6 +206,48 @@ export const billingRoutes: FastifyPluginAsync = async (server: FastifyInstance)
     if (!(await billingEnabled())) { off(reply); return false; }
     return requirePlatformAdmin(request, reply);
   };
+
+  const gstSchema = z.object({
+    enabled: z.boolean(),
+    legal_name: z.string().min(1).max(200),
+    gstin: z.string().toUpperCase().length(15),
+    address: z.string().min(1).max(500),
+    email: z.string().email().max(255).optional(),
+    phone: z.string().max(30).optional(),
+    sac_code: z.string().regex(/^\d{4,8}$/).default('998315'),
+    rate: z.number().min(0).max(28).default(18),
+    lut_number: z.string().max(50).optional(),
+  });
+
+  server.get('/api/admin/billing/gst', auth, async (request, reply) => {
+    if (!(await requirePlatformAdmin(request, reply))) return;
+    const [r] = await db`SELECT value FROM control_plane.platform_settings WHERE key = 'gst'`;
+    return reply.send({ gst: r?.['value'] ?? { enabled: false }, states: GST_STATES });
+  });
+
+  server.put('/api/admin/billing/gst', auth, async (request, reply) => {
+    if (!(await requirePlatformAdmin(request, reply))) return;
+    const input = gstSchema.safeParse(request.body);
+    if (!input.success) return reply.status(400).send({ error: 'Validation Error', message: input.error.errors[0]?.message ?? 'Invalid input' });
+    const g = input.data;
+    const err = gstinError(g.gstin);
+    if (err) return reply.status(400).send({ error: 'Validation Error', message: err });
+    // the seller's state comes from its GSTIN
+    const value = { ...g, state_code: g.gstin.slice(0, 2) };
+    await db`INSERT INTO control_plane.platform_settings (key, value) VALUES ('gst', ${db.json(value as any)})
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`;
+    await audit(request, 'billing.gst_updated', { type: 'billing' }, { enabled: g.enabled, gstin: g.gstin });
+    return reply.send({ gst: value });
+  });
+
+  server.get('/api/admin/billing/invoices/:invoiceId/document', auth, async (request, reply) => {
+    if (!(await requirePlatformAdmin(request, reply))) return;
+    const { invoiceId } = request.params as { invoiceId: string };
+    if (!uuid.test(invoiceId)) return reply.status(404).send({ error: 'Not Found', message: 'Invoice not found' });
+    const [inv] = await db`SELECT i.*, o.name AS organization_name FROM control_plane.invoices i JOIN control_plane.organizations o ON o.id = i.organization_id WHERE i.id = ${invoiceId}`;
+    if (!inv) return reply.status(404).send({ error: 'Not Found', message: 'Invoice not found' });
+    return sendDocument(reply, inv);
+  });
 
   server.put('/api/admin/billing/settings', auth, async (request, reply) => {
     if (!(await requirePlatformAdmin(request, reply))) return;
