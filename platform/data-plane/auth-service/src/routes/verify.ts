@@ -61,9 +61,11 @@ async function consume(project: ProjectInfo, type: string, match: { email?: stri
     await sql`UPDATE auth.otp_codes SET used_at = NOW() WHERE id = ${rec['id'] as string}`;
     if (otpType === 'email_verify' || otpType === 'magic_link') {
       await sql`UPDATE auth.users SET email_verified = true, confirmed_at = COALESCE(confirmed_at, NOW()) WHERE id = ${user.id}`;
+      await convertAnonymous(sql, user.id, 'email', user.email);
     }
     if (isPhone) {
       await sql`UPDATE auth.users SET phone = ${phone}, phone_verified = true, confirmed_at = COALESCE(confirmed_at, NOW()) WHERE id = ${user.id}`;
+      await convertAnonymous(sql, user.id, 'phone', null);
       const [ident] = await sql`SELECT id FROM auth.identities WHERE user_id = ${user.id} AND provider = 'phone'`;
       if (ident) {
         await sql`UPDATE auth.identities SET provider_id = ${phone}, identity_data = ${sql.json({ phone, sub: user.id })} WHERE id = ${ident['id'] as string}`;
@@ -278,4 +280,23 @@ export default async function (server: FastifyInstance) {
     });
     return reply.redirect(`${redirect}#${frag.toString()}`);
   });
+}
+
+/**
+ * An anonymous user who confirmed an email address or phone number becomes a permanent user
+ * (docs/anonymous-auth.md): is_anonymous = false, the provider joins app_metadata.providers and an
+ * email identity is added.
+ */
+export async function convertAnonymous(sql: any, userId: string, provider: 'email' | 'phone', email: string | null) {
+  const [u] = await sql`
+    UPDATE auth.users SET is_anonymous = false,
+      raw_app_meta_data = raw_app_meta_data || jsonb_build_object('provider', ${provider}::text,
+        'providers', (SELECT jsonb_agg(DISTINCT p) FROM jsonb_array_elements_text(COALESCE(raw_app_meta_data->'providers', '[]'::jsonb) || to_jsonb(${provider}::text)) p WHERE p <> 'anonymous'))
+    WHERE id = ${userId} AND is_anonymous RETURNING project_id, email`;
+  if (u && provider === 'email' && (email ?? u.email)) {
+    const e = String(email ?? u.email).toLowerCase();
+    await sql`INSERT INTO auth.identities (project_id, user_id, provider, provider_id, identity_data)
+              VALUES (${u.project_id}, ${userId}, 'email', ${e}, ${sql.json({ email: e, sub: userId })})
+              ON CONFLICT (project_id, provider, provider_id) DO NOTHING`;
+  }
 }

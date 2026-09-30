@@ -394,7 +394,7 @@ export default async function (server: FastifyInstance) {
       mailer_autoconfirm: !s.require_email_confirmation, phone_autoconfirm: false,
       magic_link_enabled: s.enable_magic_link, mfa_enabled: s.enable_mfa, password_min_length: s.password_min_length,
       external: {
-        email: true, phone: !!s.enable_phone_auth,
+        email: true, phone: !!s.enable_phone_auth, anonymous_users: !!s.enable_anonymous_sign_ins,
         ...Object.fromEntries(OAUTH_PROVIDERS.map((p) => [p, !!(credentials(s, p) ?? credentials(s, p, false))])),
       },
     });

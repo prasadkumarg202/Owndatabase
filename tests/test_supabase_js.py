@@ -25,6 +25,7 @@ def compat_project(owner):
         create function compat_add(a int, b int) returns int language sql as $$ select a + b $$;
     """)
     assert p.owner.post(f"/projects/{p.id}/tables/compat_items/realtime", json={"enabled": True}).status_code == 200
+    assert p.owner.put(f"/projects/{p.id}/auth-config", json={"enable_anonymous_sign_ins": True}).status_code == 200
     assert p.storage("POST", "bucket", key=p.service_key, json={"name": "compat", "public": True}).status_code in (200, 201)
     r = p.owner.post(f"/projects/{p.id}/functions", json={"slug": "compat-echo", "verify_jwt": False,
         "code": "export default async (req) => ({ status: 200, body: { got: (await req.json()).n } })"})

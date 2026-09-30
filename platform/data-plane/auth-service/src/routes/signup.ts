@@ -74,8 +74,37 @@ export default async function (server: FastifyInstance) {
     return reply.status(200).send({ user: publicUser(user), session: null, message: 'Enter the code sent by SMS to confirm your number' });
   }
 
+  // signInAnonymously(): a user without email / phone, until they add one (docs/anonymous-auth.md)
+  async function anonymousSignup(req: any, reply: any) {
+    const { project } = req.ctx;
+    const settings = authSettings(project);
+    if (!settings.enable_anonymous_sign_ins) {
+      return reply.status(422).send({ error: 'Anonymous Sign-ins Disabled', message: 'Anonymous sign-ins are disabled for this project' });
+    }
+    if (!settings.enable_signup && req.ctx.role !== 'service_role') {
+      return reply.status(403).send({ error: 'Forbidden', message: 'Signups are disabled for this project' });
+    }
+    if (!(await allow(`anon-signup:${project.id}:${req.ip}`, Number(process.env['ANONYMOUS_SIGNUPS_PER_HOUR'] ?? 30), 3600))) {
+      return reply.status(429).send({ error: 'Too Many Requests', message: 'Too many anonymous sign-ins from this address. Try again later.' });
+    }
+    const quota = await userQuotaError(project);
+    if (quota) return reply.status(402).send({ error: QUOTA_ERROR, message: quota });
+    const b = (req.body ?? {}) as { data?: Record<string, unknown>; options?: { data?: Record<string, unknown> } };
+    const metadata = b.data ?? b.options?.data ?? {};
+    if (typeof metadata !== 'object' || Array.isArray(metadata)) return reply.status(400).send({ error: 'Bad Request', message: 'data must be an object' });
+    const [user] = await db<UserRow[]>`
+      INSERT INTO auth.users (project_id, is_anonymous, raw_user_meta_data, raw_app_meta_data)
+      VALUES (${project.id}, true, ${db.json(metadata as any)}, ${db.json({ provider: 'anonymous', providers: ['anonymous'] })})
+      RETURNING *`;
+    const session = await issueSession(project, user!, req, { amr: 'anonymous' });
+    await audit(project.id, 'signup', req, user!.id, session.session_id, { anonymous: true });
+    return reply.status(200).send(session);
+  }
+
   server.post('/v1/:projectId/signup', { preValidation: [projectContext] }, async (req, reply) => {
     if (await captchaBlocked(req, reply, authSettings(req.ctx.project).captcha)) return reply;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (body['email'] === undefined && body['phone'] === undefined && body['password'] === undefined) return anonymousSignup(req, reply);
     if ((req.body as any)?.phone !== undefined && (req.body as any)?.email === undefined) return phoneSignup(req, reply);
     const { project } = req.ctx;
     const settings = authSettings(project);

@@ -48,6 +48,7 @@ export async function provisionProjectSchema(schema: string, password: string): 
     await sql.unsafe(`GRANT USAGE ON SCHEMA auth TO ${o}`);
     await sql.unsafe(`GRANT REFERENCES ON auth.users TO ${o}`);
     await sql.unsafe(`GRANT EXECUTE ON FUNCTION auth.uid(), auth.role(), auth.email() TO ${o}`);
+    await sql.unsafe(`DO $$ BEGIN IF to_regprocedure('auth.jwt()') IS NOT NULL THEN EXECUTE 'GRANT EXECUTE ON FUNCTION auth.jwt() TO ${o.replace(/'/g, "''")}'; END IF; END $$`);
     // `odb db push` records each migration in the same transaction (migration 014)
     await sql.unsafe(`
       DO $$ BEGIN

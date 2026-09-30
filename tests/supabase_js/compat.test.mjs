@@ -101,6 +101,19 @@ test('resumable upload with tus-js-client (Supabase docs example)', { skip }, as
   assert.equal((await dl.data.arrayBuffer()).byteLength, data.length);
 });
 
+test('auth: signInAnonymously, then add an email', { skip }, async () => {
+  const db = client(ODB_ANON_KEY);
+  const { data, error } = await db.auth.signInAnonymously({ options: { data: { theme: 'dark' } } });
+  assert.equal(error, null, JSON.stringify(error));
+  assert.equal(data.user.is_anonymous, true);
+  assert.equal(data.user.user_metadata.theme, 'dark');
+  const email = `anon-${Date.now()}@example.com`;
+  const up = await db.auth.updateUser({ email });
+  assert.equal(up.error, null, JSON.stringify(up.error));
+  assert.equal(up.data.user.email, email);
+  assert.equal(up.data.user.is_anonymous, false);
+});
+
 test('functions.invoke', { skip }, async () => {
   const r = await client(ODB_ANON_KEY).functions.invoke('compat-echo', { body: { n: 3 } });
   assert.equal(r.error, null, String(r.error));

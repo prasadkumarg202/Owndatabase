@@ -20,6 +20,8 @@ export interface AuthSettings {
   password_min_length: number;
   jwt_expiry: number;
   enable_magic_link: boolean;
+  /** signInAnonymously(): users without email / phone until they add one */
+  enable_anonymous_sign_ins: boolean;
   enable_mfa: boolean;
   max_failed_logins: number;
   lockout_minutes: number;
@@ -36,7 +38,7 @@ export interface AuthSettings {
 
 export const DEFAULT_SETTINGS: AuthSettings = {
   enable_signup: true, require_email_confirmation: false, password_min_length: 8, jwt_expiry: 3600,
-  enable_magic_link: true, enable_mfa: true, max_failed_logins: 5, lockout_minutes: 15,
+  enable_magic_link: true, enable_anonymous_sign_ins: false, enable_mfa: true, max_failed_logins: 5, lockout_minutes: 15,
   site_url: '', redirect_urls: [], providers: {},
   // 0 = the platform default (SMS_OTP_EXPIRY_MINUTES, else 10)
   enable_phone_auth: false, sms_otp_expiry_minutes: 0, sms: {}, captcha: {},
@@ -53,7 +55,7 @@ export const sha256 = (s: string) => createHash('sha256').update(s).digest('hex'
 export const ARGON2 = { type: 2 /* argon2id */, memoryCost: 19456, timeCost: 2, parallelism: 1 } as const;
 
 export interface UserRow {
-  id: string; email: string | null; phone: string | null; role: string; email_verified: boolean; phone_verified: boolean;
+  id: string; email: string | null; phone: string | null; role: string; email_verified: boolean; phone_verified: boolean; is_anonymous: boolean;
   raw_user_meta_data: Record<string, unknown>; raw_app_meta_data: Record<string, unknown>;
   created_at: Date; last_sign_in_at: Date | null; banned_until: Date | null; confirmed_at: Date | null;
 }
@@ -61,6 +63,7 @@ export interface UserRow {
 export function publicUser(u: UserRow) {
   return {
     id: u.id, email: u.email, phone: u.phone, role: u.role, email_verified: u.email_verified, phone_verified: u.phone_verified,
+    is_anonymous: !!u.is_anonymous,
     user_metadata: u.raw_user_meta_data ?? {}, app_metadata: u.raw_app_meta_data ?? {},
     created_at: u.created_at, last_sign_in_at: u.last_sign_in_at, confirmed_at: u.confirmed_at,
   };
@@ -106,6 +109,7 @@ export async function issueSession(project: ProjectInfo, user: UserRow, req: Fas
     user_role: user.role,
     project_id: project.id,
     session_id: sessionId,
+    is_anonymous: !!user.is_anonymous,
     aal,
     amr: [{ method: opts.amr ?? 'password', timestamp: Math.floor(Date.now() / 1000) }],
     app_metadata: user.raw_app_meta_data ?? {},

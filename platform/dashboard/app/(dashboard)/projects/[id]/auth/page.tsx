@@ -83,7 +83,7 @@ function Users({ projectId }: { projectId: string }) {
       <DataTable testId="users-table" data={data?.data} onRowClick={(u: any) => setSelected(u.id)} empty="No users yet. Users appear here when they sign up through the Auth API."
         columns={[
           { key: 'email', label: 'Email', render: (u: any) => <span className="font-medium">{u.email ?? u.phone ?? u.id}</span> },
-          { key: 'providers', label: 'Providers', render: (u: any) => (u.providers ?? []).join(', ') },
+          { key: 'providers', label: 'Providers', render: (u: any) => (u.is_anonymous ? ['anonymous', ...(u.providers ?? [])] : (u.providers ?? [])).join(', ') || '—' },
           { key: 'email_verified', label: 'Verified', render: (u: any) => u.email_verified ? <Badge tone="green">yes</Badge> : <Badge tone="yellow">no</Badge> },
           { key: 'mfa_enabled', label: 'MFA', render: (u: any) => u.mfa_enabled ? <Badge tone="purple">on</Badge> : '' },
           { key: 'banned_until', label: 'Banned', render: (u: any) => u.banned_until && new Date(u.banned_until) > new Date() ? <Badge tone="red">banned</Badge> : '' },
@@ -143,6 +143,7 @@ function Settings({ projectId }: { projectId: string }) {
           {toggle('enable_signup', 'Allow new users to sign up')}
           {toggle('require_email_confirmation', 'Require email confirmation', 'Users must verify their email before signing in')}
           {toggle('enable_magic_link', 'Magic links / email codes')}
+          {toggle('enable_anonymous_sign_ins', 'Anonymous sign-ins', 'signInAnonymously(): guest users who can add an email or phone later')}
           {toggle('enable_mfa', 'Multi-factor authentication (TOTP)')}
           <Input label="Minimum password length" type="number" value={cfg.password_min_length} onChange={(e) => set('password_min_length', Number(e.target.value))} />
           <Input label="Access token lifetime (seconds)" type="number" value={cfg.jwt_expiry} onChange={(e) => set('jwt_expiry', Number(e.target.value))} />
