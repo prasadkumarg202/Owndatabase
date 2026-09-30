@@ -4,8 +4,9 @@
  * Every project gets:
  *   - its own PostgreSQL schema (project_<slug>)
  *   - an owner LOGIN role that owns that schema and everything in it
- *   - USAGE + default privileges for anon / authenticated / service_role,
- *     so the REST API can run queries under those roles and RLS applies
+ *   - its own API roles <schema>_anon / _authn / _svc (members of anon / authenticated /
+ *     service_role, so policies "TO authenticated" apply). Only they may use the schema:
+ *     the shared roles reach no project schema (migration 022, tenant isolation)
  *
  * All statements are idempotent, so provisioning can be re-run safely.
  */
@@ -36,7 +37,6 @@ export async function provisionProjectSchema(schema: string, password: string): 
     await sql.unsafe(`ALTER ROLE ${o} SET statement_timeout = '30s'`);
     await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${s} AUTHORIZATION ${o}`);
     await sql.unsafe(`ALTER SCHEMA ${s} OWNER TO ${o}`);
-    await sql.unsafe(`GRANT USAGE ON SCHEMA ${s} TO anon, authenticated, service_role`);
     await sql.unsafe(`GRANT ALL ON ALL TABLES IN SCHEMA ${s} TO anon, authenticated, service_role`);
     await sql.unsafe(`GRANT ALL ON ALL SEQUENCES IN SCHEMA ${s} TO anon, authenticated, service_role`);
     await sql.unsafe(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ${s} TO anon, authenticated, service_role`);
@@ -58,6 +58,8 @@ export async function provisionProjectSchema(schema: string, password: string): 
     // Project owners must not be able to read other projects or the control plane
     await sql.unsafe(`REVOKE ALL ON SCHEMA control_plane FROM ${o}`);
     await sql.unsafe(`REVOKE CREATE ON SCHEMA public FROM PUBLIC`);
+    // per-project API roles; USAGE on the schema only for them
+    await sql`SELECT odb_meta.secure_project_schema(${schema})`;
   });
 }
 
@@ -65,6 +67,7 @@ export async function dropProjectSchema(schema: string): Promise<void> {
   const owner = ownerRole(schema);
   await db.begin(async (sql) => {
     await sql.unsafe(`DROP SCHEMA IF EXISTS ${ident(schema)} CASCADE`);
+    await sql`SELECT odb_meta.drop_project_roles(${schema})`;
     await sql.unsafe(`
       DO $$ BEGIN
         IF EXISTS (SELECT FROM pg_roles WHERE rolname = '${owner.replace(/'/g, "''")}') THEN

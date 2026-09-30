@@ -248,10 +248,11 @@ async function restoreRun(job: Job) {
       }
       const fns = await tx`SELECT p.oid::regprocedure::text AS sig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = ${schema}`;
       for (const f of fns) await tx.unsafe(`ALTER FUNCTION ${f['sig'] as string} OWNER TO ${o}`);
-      await tx.unsafe(`GRANT USAGE ON SCHEMA ${s} TO anon, authenticated, service_role`);
       await tx.unsafe(`GRANT ALL ON ALL TABLES IN SCHEMA ${s} TO anon, authenticated, service_role`);
       await tx.unsafe(`GRANT ALL ON ALL SEQUENCES IN SCHEMA ${s} TO anon, authenticated, service_role`);
       await tx.unsafe(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ${s} TO anon, authenticated, service_role`);
+      // only the project's own API roles may use the schema (migration 022, tenant isolation)
+      await tx`SELECT odb_meta.secure_project_schema(${schema})`;
     });
     await sql.unsafe(`DROP SCHEMA ${ident(safety)} CASCADE`);
     renamed = false;

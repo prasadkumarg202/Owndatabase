@@ -222,6 +222,25 @@ Database isolation is available for compliance requirements.
 
 ---
 
+### Project isolation
+
+Each project has its own schema and its own database roles:
+
+| Role | Used for | Reaches |
+|---|---|---|
+| `<schema>_owner` | SQL editor, migrations (a LOGIN role) | its own schema |
+| `<schema>_anon`, `_authn`, `_svc` | REST / RPC / GraphQL / realtime queries (`SET LOCAL ROLE`) | its own schema only; `_svc` bypasses RLS |
+
+- The API roles are members of the shared `anon` / `authenticated` / `service_role`, so policies
+  written `TO authenticated` (as in Supabase) apply unchanged.
+- The shared roles themselves have no access to any project schema, nor to the `auth.*`, `storage.*`
+  or `control_plane.*` tables, which hold every project's data. The services read those over their
+  own connections.
+- If a project owner grants its schema to a shared role, an event trigger removes that grant
+  (`odb_enforce_schema_isolation`).
+- Deleting a project drops its roles. Migration 022 converted existing projects;
+  `tests/test_tenant_isolation.py` checks these rules.
+
 ## Secret Management
 
 ### Storage

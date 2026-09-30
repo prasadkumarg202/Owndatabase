@@ -27,7 +27,7 @@ import postgres from 'postgres';
 import { Redis } from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
-import { AuthError, PlatformAuth, type ApiRole, type ProjectInfo } from './lib/platform-auth.js';
+import { AuthError, PlatformAuth, projectApiRole, type ApiRole, type ProjectInfo } from './lib/platform-auth.js';
 import { limitOf } from './lib/limits.js';
 import { initTracing, shutdownTracing, tracingPlugin } from './lib/tracing.js';
 import { DomainMap } from './lib/domains.js';
@@ -119,7 +119,7 @@ async function canSee(schema: string, table: string, pkValues: Record<string, un
   if (!meta.pk.length || meta.pk.some((k) => pkValues[k] === undefined)) return false;
   try {
     return await db.begin(async (tx) => {
-      await tx.unsafe(`SET LOCAL ROLE ${role}`);
+      await tx.unsafe(`SET LOCAL ROLE ${ident(projectApiRole(schema, role))}`);
       await tx`SELECT set_config('request.jwt.claims', ${JSON.stringify(claims ?? { role })}, true)`;
       const where = meta.pk.map((k, i) => `${ident(k)}::text = $${i + 1}::text`).join(' AND ');
       const rows = await tx.unsafe(`SELECT 1 FROM ${ident(schema)}.${ident(table)} WHERE ${where} LIMIT 1`, meta.pk.map((k) => String(pkValues[k])));

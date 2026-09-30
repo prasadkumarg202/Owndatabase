@@ -84,9 +84,13 @@ x-pg: &pg
         # Same policy as the single-node pg_hba.conf: password (scram) auth from
         # private networks, nothing else. Spilo's default rejects all non-SSL
         # connections, which the app services do not use inside Docker.
+        # "all" in the database column does not match replication connections: Patroni /
+        # pg_rewind replicate over the local socket, so they need their own lines.
         pg_hba:
           - local all all trust
+          - local replication all trust
           - host all all 127.0.0.1/32 scram-sha-256
+          - host replication all 127.0.0.1/32 scram-sha-256
           - host replication standby 10.0.0.0/8 scram-sha-256
           - host replication standby 172.16.0.0/12 scram-sha-256
           - host replication standby 192.168.0.0/16 scram-sha-256

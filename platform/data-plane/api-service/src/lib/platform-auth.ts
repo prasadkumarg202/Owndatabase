@@ -247,7 +247,20 @@ export class PlatformAuth {
   }
 }
 
-/** Runs `fn` inside a transaction as the given API role with JWT claims set for RLS. */
+/**
+ * The project's own database role for an API role (migration 022): only it may use the project's
+ * schema, and it is a member of the shared anon / authenticated / service_role so RLS policies
+ * written "TO authenticated" still apply. Keep in sync with odb_meta.api_role().
+ */
+export function projectApiRole(schema: string, role: string): string {
+  const suffix = role === 'anon' ? 'anon' : role === 'authenticated' ? 'authn' : role === 'service_role' ? 'svc' : null;
+  if (!suffix) throw new Error(`Unknown API role ${role}`);
+  const name = `${schema}_${suffix}`;
+  return name.length <= 63 ? name : `p_${createHash('md5').update(schema).digest('hex').slice(0, 20)}_${suffix}`;
+}
+const quoteIdent = (s: string) => '"' + s.replace(/"/g, '""') + '"';
+
+/** Runs `fn` inside a transaction as the project's API role with JWT claims set for RLS. */
 export async function withRole<T>(
   sql: postgres.Sql<any>,
   auth: Pick<RequestAuth, 'role' | 'claims' | 'project'>,
@@ -255,7 +268,7 @@ export async function withRole<T>(
   statementTimeoutMs = 15000,
 ): Promise<T> {
   return withSpan('db.transaction', { 'db.system': 'postgresql', 'db.user': auth.role, 'odb.project_id': auth.project.id }, () => sql.begin(async (tx) => {
-    await tx.unsafe(`SET LOCAL ROLE ${auth.role}`);
+    await tx.unsafe(`SET LOCAL ROLE ${quoteIdent(projectApiRole(auth.project.db_schema, auth.role))}`);
     await tx`SELECT set_config('request.jwt.claims', ${JSON.stringify(auth.claims ?? {})}, true),
                     set_config('request.jwt.claim.sub', ${String(auth.claims?.['sub'] ?? '')}, true),
                     set_config('search_path', ${'"' + auth.project.db_schema.replace(/"/g, '""') + '", public'}, true),
