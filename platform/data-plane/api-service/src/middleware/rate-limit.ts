@@ -13,7 +13,8 @@ export async function rateLimitMiddleware(req: FastifyRequest, reply: FastifyRep
   if (!auth) return;
 
   // Over the database size limit: reads and deletes only, so the data can be trimmed
-  if (isDbReadOnly(auth.project) && ['POST', 'PUT', 'PATCH'].includes(req.method)) {
+  // (GraphQL sends queries as POST too: it refuses mutations itself when read-only)
+  if (isDbReadOnly(auth.project) && ['POST', 'PUT', 'PATCH'].includes(req.method) && !req.url.startsWith('/graphql/')) {
     return reply.status(402).send({
       error: QUOTA_ERROR,
       message: 'This project is over its database size limit and is read-only. Delete data or ask for a higher limit.',

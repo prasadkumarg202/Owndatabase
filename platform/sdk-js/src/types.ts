@@ -31,7 +31,9 @@ export async function toError(res: Response): Promise<OdbError> {
   try { body = await res.json(); } catch { /* not JSON */ }
   return {
     status: res.status,
-    message: body?.message ?? body?.error_description ?? body?.error ?? res.statusText ?? `HTTP ${res.status}`,
+    message: body?.message ?? body?.error_description
+      ?? (Array.isArray(body?.errors) ? body.errors.map((e: any) => e?.message).join('; ') : undefined)   // GraphQL
+      ?? body?.error ?? res.statusText ?? `HTTP ${res.status}`,
     code: body?.code, details: body?.details, hint: body?.hint,
   };
 }

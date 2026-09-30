@@ -84,6 +84,15 @@
         }
     }
 
+    # ── GraphQL (served by the data API, path kept) ──────────────────────────
+    handle /graphql/* {
+        reverse_proxy api-service:3003 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
     # ── Functions (served by the data API, path kept) ────────────────────────
     handle /functions/* {
         reverse_proxy api-service:3003 {

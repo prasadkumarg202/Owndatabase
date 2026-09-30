@@ -275,6 +275,6 @@
 - [x] Custom domains (DNS TXT verification, on-demand TLS, Supabase-style paths on the domain) — [custom-domains.md](custom-domains.md)
 - [x] Branching (schema ± data copies with own keys, merge migrations back, preview branch per PR) — [branches.md](branches.md)
 - [x] JavaScript SDK `@owndatabase/client` (query builder, auth with auto-refresh, storage, functions, realtime) — [platform/sdk-js](../platform/sdk-js/README.md)
-- [ ] GraphQL
+- [x] GraphQL (generated from the schema, relations, filters, mutations; one SQL statement per root field; RLS) — [graphql.md](graphql.md)
 - [ ] Billing
 - [ ] Bot detection (CAPTCHA on auth)

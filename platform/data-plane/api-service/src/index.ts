@@ -15,6 +15,7 @@ import { openApiHandler } from './lib/openapi.js';
 import restRoutes from './routes/rest.js';
 import rpcRoutes from './routes/rpc.js';
 import functionRoutes from './routes/functions.js';
+import graphqlRoutes from './routes/graphql.js';
 import { initTracing, shutdownTracing, tracingPlugin } from './lib/tracing.js';
 import { DomainMap } from './lib/domains.js';
 
@@ -65,6 +66,7 @@ await server.register(async (api) => {
   api.get('/v1/:projectId/openapi.json', openApiHandler);
   await api.register(rpcRoutes);
   await api.register(restRoutes);
+  await api.register(graphqlRoutes);
 });
 
 server.setNotFoundHandler((_req, reply) => { void reply.status(404).send({ error: 'Not Found' }); });

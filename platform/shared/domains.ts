@@ -8,6 +8,7 @@
  *   https://api.example.com/auth/v1/token          →  /v1/<projectId>/token            (auth-service)
  *   https://api.example.com/storage/v1/object/…    →  /v1/<projectId>/object/…         (storage-api)
  *   https://api.example.com/functions/v1/hello     →  /functions/v1/<projectId>/hello  (api-service)
+ *   https://api.example.com/graphql/v1             →  /graphql/v1/<projectId>          (api-service)
  *   wss://api.example.com/realtime                 →  /realtime?project_id=<projectId> (realtime)
  *
  * Paths that already carry a project id are left alone (API keys still decide
@@ -49,7 +50,7 @@ export class DomainMap {
     const url = req.url ?? '/';
     const pid = this.projectFor(String(req.headers['x-forwarded-host'] ?? req.headers.host ?? ''));
     if (!pid) return url;
-    for (const prefix of ['/functions/v1/', '/v1/']) {
+    for (const prefix of ['/functions/v1/', '/graphql/v1/', '/v1/']) {
       if (url.startsWith(prefix)) {
         const next = url.slice(prefix.length).split(/[/?#]/)[0] ?? '';
         return UUID.test(next) ? url : `${prefix}${pid}/${url.slice(prefix.length)}`.replace(/\/$/, '');

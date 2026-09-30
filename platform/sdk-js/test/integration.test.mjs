@@ -130,3 +130,12 @@ test('realtime: postgres changes and broadcast', { skip }, async () => {
   });
   assert.deepEqual((await heard).payload, { x: 1 });
 });
+
+test('graphql', { skip }, async () => {
+  const db = client(ODB_SERVICE_KEY);
+  const r = await db.graphql('query($n: Int) { sdk_items(orderBy: [{ id: ASC }], limit: $n) { id name } }', { n: 2 });
+  assert.equal(r.error, null, JSON.stringify(r.error));
+  assert.deepEqual(r.data.sdk_items.map((x) => x.id), [1, 2]);
+  const bad = await db.graphql('{ sdk_items { nope } }');
+  assert.ok(bad.error && /nope/.test(bad.error.message));
+});

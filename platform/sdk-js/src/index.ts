@@ -85,6 +85,17 @@ export class OwnDatabaseClient {
     return request(this.ctx, `${this.ctx.urls.rest}/rpc/${encodeURIComponent(fn)}`, { method: 'POST', json: args });
   }
 
+  /** GraphQL over the project schema (docs/graphql.md). GraphQL errors come back in `error`. */
+  async graphql<T = any>(query: string, variables?: Record<string, unknown>): Promise<OdbResponse<T>> {
+    const base = this.ctx.urls.rest.replace(/\/rest\/v1(\/[^/]+)?$/, (_m, pid: string | undefined) => `/graphql/v1${pid ?? ''}`);
+    const r = await request<any>(this.ctx, base, { method: 'POST', json: { query, variables } });
+    const errs = r.data?.errors as { message: string }[] | undefined;
+    if (r.error || errs?.length) {
+      return { data: r.data?.data ?? null, status: r.status, error: r.error ?? { status: r.status, message: errs!.map((e) => e.message).join('; '), details: errs } };
+    }
+    return { data: r.data.data, error: null, status: r.status };
+  }
+
   channel(topic: string) { return this.realtime.channel(topic); }
   removeChannel(ch: ReturnType<RealtimeClient['channel']>) { ch.unsubscribe(); }
   removeAllChannels() { for (const ch of this.realtime.getChannels()) ch.unsubscribe(); }
