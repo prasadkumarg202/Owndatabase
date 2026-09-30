@@ -274,7 +274,7 @@
 - [x] OpenTelemetry traces (all services → Tempo, `traceparent` continued, `x-trace-id` on responses) — [tracing.md](tracing.md)
 - [x] Custom domains (DNS TXT verification, on-demand TLS, Supabase-style paths on the domain) — [custom-domains.md](custom-domains.md)
 - [x] Branching (schema ± data copies with own keys, merge migrations back, preview branch per PR) — [branches.md](branches.md)
-- [ ] JavaScript SDK
+- [x] JavaScript SDK `@owndatabase/client` (query builder, auth with auto-refresh, storage, functions, realtime) — [platform/sdk-js](../platform/sdk-js/README.md)
 - [ ] GraphQL
 - [ ] Billing
 - [ ] Bot detection (CAPTCHA on auth)

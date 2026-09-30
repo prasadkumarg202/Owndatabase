@@ -1,0 +1,25 @@
+{
+  "name": "@owndatabase/client",
+  "version": "0.1.0",
+  "description": "JavaScript / TypeScript client for OwnDatabase: database, auth, storage, functions and realtime",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test test/integration.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.3"
+  },
+  "license": "MIT"
+}
