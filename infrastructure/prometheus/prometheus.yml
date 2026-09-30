@@ -5,6 +5,12 @@ global:
     environment: 'development'
     platform: 'owndatabase'
 
+# Alerts go to Alertmanager (email / Slack / webhook, docs/monitoring.md)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
 # Alert rules
 rule_files:
   - "rules/*.yml"

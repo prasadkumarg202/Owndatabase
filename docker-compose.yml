@@ -213,6 +213,10 @@ services:
       PUBLIC_URL: ${SITE_URL:-http://localhost}
       MIGRATIONS_DIR: /app/migrations
       PROMETHEUS_URL: http://prometheus:9090
+      # only to report which alert receivers are set (Alertmanager does the sending)
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      ALERT_SLACK_WEBHOOK_URL: ${ALERT_SLACK_WEBHOOK_URL:+set}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:+set}
       LOKI_URL: http://loki:3100
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-10}
@@ -709,6 +713,36 @@ services:
       retries: 3
 
   # ─────────────────────────────────────────────────────────────────────────
+  # ALERTS — Alertmanager (delivers Prometheus alerts; docs/monitoring.md)
+  # ─────────────────────────────────────────────────────────────────────────
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: owndatabase-alertmanager
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/etc/alertmanager/entrypoint.sh"]
+    environment:
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      ALERT_SLACK_WEBHOOK_URL: ${ALERT_SLACK_WEBHOOK_URL:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      ALERT_GROUP_WAIT: ${ALERT_GROUP_WAIT:-30s}
+      ALERT_REPEAT_INTERVAL: ${ALERT_REPEAT_INTERVAL:-4h}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@localhost}
+    volumes:
+      - ./infrastructure/alertmanager/entrypoint.sh:/etc/alertmanager/entrypoint.sh:ro
+      - alertmanager_data:/alertmanager
+    networks:
+      - owndatabase
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9093/-/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ─────────────────────────────────────────────────────────────────────────
   # DASHBOARDS — Grafana
   # ─────────────────────────────────────────────────────────────────────────
   grafana:
@@ -850,6 +884,7 @@ networks:
 # VOLUMES
 # ─────────────────────────────────────────────────────────────────────────────
 volumes:
+  alertmanager_data:
   postgres_data:
     name: owndatabase_postgres_data
   postgres_socket:

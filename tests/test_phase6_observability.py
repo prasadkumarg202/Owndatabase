@@ -67,13 +67,16 @@ def test_usage(project):
     assert u["today"].get("rest_requests", 0) >= 1
 
 
-def test_alerts_endpoint(owner):
-    r = owner.get("/observability/alerts")
+def test_alerts_endpoint(owner, platform_admin):
+    assert owner.get("/observability/alerts").status_code == 403  # infrastructure state: admins only
+    r = platform_admin.get("/observability/alerts")
     assert r.status_code == 200
     body = r.json()
     assert "data" in body and "configured" in body
     if body["configured"] and not body.get("error"):
         assert body["rule_count"] >= 10
+        # Prometheus hands alerts to Alertmanager
+        assert any(":9093" in u for u in body["delivery"]["alertmanagers"]), body["delivery"]
 
 
 def test_service_metrics_exposed(owner, platform_admin):

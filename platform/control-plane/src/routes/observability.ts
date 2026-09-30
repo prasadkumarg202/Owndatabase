@@ -151,7 +151,9 @@ export const observabilityRoutes: FastifyPluginAsync = async (server: FastifyIns
     return reply.send({ data: results });
   });
 
-  server.get('/observability/alerts', { ...auth, ...s('Active alerts from Prometheus') }, async (_request, reply) => {
+  // infrastructure state: platform admins only
+  server.get('/observability/alerts', { ...auth, ...s('Active alerts from Prometheus (platform admins)') }, async (request, reply) => {
+    if (!(await requirePlatformAdmin(request, reply))) return;
     if (!config.prometheusUrl) return reply.send({ data: [], configured: false });
     try {
       const r = await fetchJson(`${config.prometheusUrl}/api/v1/alerts`);
@@ -162,7 +164,16 @@ export const observabilityRoutes: FastifyPluginAsync = async (server: FastifyIns
       }));
       const rules = await fetchJson(`${config.prometheusUrl}/api/v1/rules?type=alert`);
       const ruleCount = (rules.body?.data?.groups ?? []).reduce((n: number, g: any) => n + (g.rules?.length ?? 0), 0);
-      return reply.send({ data: alerts, configured: true, rule_count: ruleCount });
+      // where Alertmanager sends them (docs/monitoring.md)
+      const am = await fetchJson(`${config.prometheusUrl}/api/v1/alertmanagers`).catch(() => null);
+      const alertmanagers = (am?.body?.data?.activeAlertmanagers ?? []).map((x: any) => x.url);
+      const delivery = {
+        alertmanagers,
+        email: !!(process.env['ALERT_EMAIL_TO'] && process.env['SMTP_HOST']),
+        slack: !!process.env['ALERT_SLACK_WEBHOOK_URL'],
+        webhook: !!process.env['ALERT_WEBHOOK_URL'],
+      };
+      return reply.send({ data: alerts, configured: true, rule_count: ruleCount, delivery });
     } catch (err) {
       return reply.send({ data: [], configured: true, error: (err as Error).message });
     }
