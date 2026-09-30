@@ -23,6 +23,8 @@ export interface AuthSettings {
   /** signInAnonymously(): users without email / phone until they add one */
   enable_anonymous_sign_ins: boolean;
   enable_mfa: boolean;
+  /** SMS codes as a second factor (docs/mfa.md) */
+  enable_mfa_phone: boolean;
   max_failed_logins: number;
   lockout_minutes: number;
   site_url: string;
@@ -38,7 +40,7 @@ export interface AuthSettings {
 
 export const DEFAULT_SETTINGS: AuthSettings = {
   enable_signup: true, require_email_confirmation: false, password_min_length: 8, jwt_expiry: 3600,
-  enable_magic_link: true, enable_anonymous_sign_ins: false, enable_mfa: true, max_failed_logins: 5, lockout_minutes: 15,
+  enable_magic_link: true, enable_anonymous_sign_ins: false, enable_mfa: true, enable_mfa_phone: false, max_failed_logins: 5, lockout_minutes: 15,
   site_url: '', redirect_urls: [], providers: {},
   // 0 = the platform default (SMS_OTP_EXPIRY_MINUTES, else 10)
   enable_phone_auth: false, sms_otp_expiry_minutes: 0, sms: {}, captcha: {},

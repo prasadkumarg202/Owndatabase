@@ -145,6 +145,7 @@ function Settings({ projectId }: { projectId: string }) {
           {toggle('enable_magic_link', 'Magic links / email codes')}
           {toggle('enable_anonymous_sign_ins', 'Anonymous sign-ins', 'signInAnonymously(): guest users who can add an email or phone later')}
           {toggle('enable_mfa', 'Multi-factor authentication (TOTP)')}
+          {toggle('enable_mfa_phone', 'SMS codes as a second factor', 'Uses the SMS provider below')}
           <Input label="Minimum password length" type="number" value={cfg.password_min_length} onChange={(e) => set('password_min_length', Number(e.target.value))} />
           <Input label="Access token lifetime (seconds)" type="number" value={cfg.jwt_expiry} onChange={(e) => set('jwt_expiry', Number(e.target.value))} />
           <Input label="Lock account after failed logins" type="number" value={cfg.max_failed_logins} onChange={(e) => set('max_failed_logins', Number(e.target.value))} />

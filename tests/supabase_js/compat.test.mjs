@@ -122,6 +122,24 @@ test('auth: signInWithSSO returns the identity provider URL', { skip: skip || !p
   assert.ok(data.url.startsWith(process.env.ODB_SSO_URL) && data.url.includes('SAMLRequest='), data.url);
 });
 
+test('auth: MFA with an SMS code (enroll, challenge, verify)', { skip }, async () => {
+  const db = client(ODB_ANON_KEY);
+  const email = `mfa-${Date.now()}@example.com`;
+  await db.auth.signUp({ email, password: 'password-123' });
+  await db.auth.signInWithPassword({ email, password: 'password-123' });
+  const phone = `+9199${String(Date.now()).slice(-8)}`;
+  const en = await db.auth.mfa.enroll({ factorType: 'phone', phone });
+  assert.equal(en.error, null, JSON.stringify(en.error));
+  const ch = await db.auth.mfa.challenge({ factorId: en.data.id });
+  assert.equal(ch.error, null, JSON.stringify(ch.error));
+  // the code from the auth service's dev mailbox (no real SMS in tests)
+  const box = await (await fetch(`${ODB_URL}/auth/v1/${ODB_PROJECT_ID}/_dev/sms?phone=${encodeURIComponent(phone)}`, { headers: { apikey: ODB_ANON_KEY } })).json();
+  const v = await db.auth.mfa.verify({ factorId: en.data.id, challengeId: ch.data.id, code: box.data[0].code });
+  assert.equal(v.error, null, JSON.stringify(v.error));
+  const aal = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+  assert.equal(aal.data.currentLevel, 'aal2');
+});
+
 test('functions.invoke', { skip }, async () => {
   const r = await client(ODB_ANON_KEY).functions.invoke('compat-echo', { body: { n: 3 } });
   assert.equal(r.error, null, String(r.error));

@@ -25,7 +25,8 @@ def compat_project(owner):
         create function compat_add(a int, b int) returns int language sql as $$ select a + b $$;
     """)
     assert p.owner.post(f"/projects/{p.id}/tables/compat_items/realtime", json={"enabled": True}).status_code == 200
-    assert p.owner.put(f"/projects/{p.id}/auth-config", json={"enable_anonymous_sign_ins": True, "site_url": "http://app.example.com"}).status_code == 200
+    assert p.owner.put(f"/projects/{p.id}/auth-config", json={"enable_anonymous_sign_ins": True, "site_url": "http://app.example.com",
+                                                                        "enable_mfa_phone": True, "sms": {"provider": "log"}}).status_code == 200
     import mock_saml_idp
     idp = mock_saml_idp.MockIdP()
     assert p.auth("POST", "admin/sso/providers", key=p.service_key, json={"metadata_xml": idp.metadata(), "domains": ["compat-sso.example.com"]}).status_code == 201
