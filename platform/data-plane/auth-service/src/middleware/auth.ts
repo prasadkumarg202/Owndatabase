@@ -15,10 +15,10 @@ declare module 'fastify' {
   }
 }
 
-async function resolve(req: FastifyRequest, reply: FastifyReply, needUser: boolean) {
+async function resolve(req: FastifyRequest, reply: FastifyReply, needUser: boolean, allowPlatformUser = false) {
   const { projectId } = req.params as { projectId: string };
   try {
-    req.ctx = await platform.authenticate(projectId, req.headers as any, req.query as any, { ip: req.ip });
+    req.ctx = await platform.authenticate(projectId, req.headers as any, req.query as any, { ip: req.ip, allowPlatformUser });
   } catch (err) {
     if (err instanceof AuthError) return reply.status(err.statusCode).send({ error: 'Unauthorized', message: err.message });
     throw err;
@@ -43,7 +43,8 @@ export async function userContext(req: FastifyRequest, reply: FastifyReply) {
 }
 
 export async function serviceContext(req: FastifyRequest, reply: FastifyReply) {
-  await resolve(req, reply, false);
+  // admin endpoints: a service_role key, or a dashboard user of the project's organization
+  await resolve(req, reply, false, true);
   if (reply.sent) return;
   if (req.ctx.role !== 'service_role') {
     return reply.status(403).send({ error: 'Forbidden', message: 'This endpoint requires a service_role API key' });

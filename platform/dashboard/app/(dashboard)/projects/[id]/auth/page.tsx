@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
-import { api, formatDate, timeAgo } from '@/lib/api';
+import { api, authApi, formatDate, timeAgo } from '@/lib/api';
 import { useProject, useProjectId } from '@/lib/hooks';
 import { Card, ErrorBox, PageHeader, Tabs } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -12,6 +12,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { DataTable } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
+import { CopyField } from '@/components/ui/CopyField';
 
 function UserDetail({ projectId, userId, onClose }: { projectId: string; userId: string; onClose: () => void }) {
   const qc = useQueryClient();
@@ -145,7 +146,7 @@ function Settings({ projectId }: { projectId: string }) {
           {toggle('enable_magic_link', 'Magic links / email codes')}
           {toggle('enable_anonymous_sign_ins', 'Anonymous sign-ins', 'signInAnonymously(): guest users who can add an email or phone later')}
           {toggle('enable_mfa', 'Multi-factor authentication (TOTP)')}
-          {toggle('enable_mfa_phone', 'SMS codes as a second factor', 'Uses the SMS provider below')}
+          {toggle('enable_mfa_phone', 'SMS codes as a second factor', 'Sent with the phone (SMS) settings below')}
           <Input label="Minimum password length" type="number" value={cfg.password_min_length} onChange={(e) => set('password_min_length', Number(e.target.value))} />
           <Input label="Access token lifetime (seconds)" type="number" value={cfg.jwt_expiry} onChange={(e) => set('jwt_expiry', Number(e.target.value))} />
           <Input label="Lock account after failed logins" type="number" value={cfg.max_failed_logins} onChange={(e) => set('max_failed_logins', Number(e.target.value))} />
@@ -243,14 +244,68 @@ function Settings({ projectId }: { projectId: string }) {
   );
 }
 
+/** SAML identity providers (docs/sso.md): signInWithSSO({ domain }) */
+function SsoProviders({ projectId }: { projectId: string }) {
+  const toast = useToast();
+  const { data: project } = useProject(projectId);
+  const authUrl = project?.endpoints?.auth_url ?? '';
+  const list = useQuery({ queryKey: ['sso', projectId], queryFn: () => authApi.get(`/v1/${projectId}/admin/sso/providers`).then((r: any) => r.items as any[]) });
+  const [form, setForm] = useState({ metadata: '', domains: '' });
+  const add = useMutation({
+    mutationFn: () => {
+      const m = form.metadata.trim();
+      return authApi.post(`/v1/${projectId}/admin/sso/providers`, {
+        type: 'saml', ...(m.startsWith('http') ? { metadata_url: m } : { metadata_xml: m }),
+        domains: form.domains.split(',').map((d) => d.trim().toLowerCase()).filter(Boolean),
+      });
+    },
+    onSuccess: () => { toast.success('Identity provider added'); setForm({ metadata: '', domains: '' }); list.refetch(); },
+    onError: (e) => toast.error(e),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => authApi.delete(`/v1/${projectId}/admin/sso/providers/${id}`),
+    onSuccess: () => { toast.success('Removed'); list.refetch(); },
+    onError: (e) => toast.error(e),
+  });
+  return (
+    <div className="space-y-4">
+      <Card title="Register with your identity provider" description="Create a SAML app in Okta, Entra ID, Google Workspace, ... with these values.">
+        <div className="grid gap-3 md:grid-cols-2">
+          <CopyField label="Entity ID / metadata URL" value={`${authUrl}/sso/saml/metadata`} />
+          <CopyField label="ACS (reply) URL" value={`${authUrl}/sso/saml/acs`} />
+        </div>
+      </Card>
+      <Card title="Identity providers" bodyClassName="p-0">
+        <ErrorBox error={list.error} />
+        <DataTable testId="sso-providers" data={list.data} empty="No identity providers" columns={[
+          { key: 'entity', label: 'Entity ID', render: (p: any) => <span className="font-mono text-xs">{p.saml.entity_id}</span> },
+          { key: 'domains', label: 'Domains', render: (p: any) => p.domains.map((d: any) => d.domain).join(', ') || '—' },
+          { key: 'id', label: 'Provider ID', render: (p: any) => <span className="font-mono text-xs">{p.id}</span> },
+          { key: 'x', label: '', render: (p: any) => <Button size="sm" variant="danger" onClick={() => remove.mutate(p.id)}>Remove</Button> },
+        ]} />
+      </Card>
+      <Card title="Add identity provider">
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-700" htmlFor="sso-metadata">IdP metadata URL (https) or metadata XML</label>
+            <textarea id="sso-metadata" rows={5} className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs" value={form.metadata} onChange={(e) => setForm({ ...form, metadata: e.target.value })} />
+          </div>
+          <Input label="Email domains (comma-separated)" value={form.domains} onChange={(e) => setForm({ ...form, domains: e.target.value })} placeholder="acme.com, acme.in" />
+          <Button onClick={() => add.mutate()} disabled={!form.metadata.trim()} loading={add.isPending} data-testid="add-sso">Add provider</Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 export default function AuthPage() {
   const id = useProjectId();
   const [tab, setTab] = useState('users');
   return (
     <div>
       <PageHeader title="Authentication" description="End users of this project, and how they sign in." />
-      <Tabs active={tab} onChange={setTab} tabs={[{ id: 'users', label: 'Users' }, { id: 'settings', label: 'Settings' }]} />
-      {tab === 'users' ? <Users projectId={id} /> : <Settings projectId={id} />}
+      <Tabs active={tab} onChange={setTab} tabs={[{ id: 'users', label: 'Users' }, { id: 'settings', label: 'Settings' }, { id: 'sso', label: 'SSO' }]} />
+      {tab === 'users' ? <Users projectId={id} /> : tab === 'sso' ? <SsoProviders projectId={id} /> : <Settings projectId={id} />}
     </div>
   );
 }

@@ -5,11 +5,15 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, FolderOpen, Database, Code2, Users, HardDrive, Radio, Zap, Clock, ListOrdered,
   Archive, ScrollText, Activity, Settings, BarChart2, ExternalLink, Home, Building2, Webhook, GitBranch,
+  Braces, History, KeyRound, Receipt,
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 export function Sidebar() {
   const pathname = usePathname();
+  const me = useQuery({ queryKey: ['me'], queryFn: () => api.get('/auth/me'), staleTime: 300_000, retry: false });
   const m = pathname.match(/^\/projects\/([0-9a-f-]{36})/);
   const pid = m?.[1];
   const p = (sub: string) => `/projects/${pid}${sub}`;
@@ -22,6 +26,8 @@ export function Sidebar() {
           { label: 'Tables', href: p('/database'), icon: Database },
           { label: 'SQL Editor', href: p('/sql'), icon: Code2 },
           { label: 'Branches', href: p('/branches'), icon: GitBranch },
+          { label: 'Migrations', href: p('/migrations'), icon: History },
+          { label: 'GraphQL', href: p('/graphql'), icon: Braces },
         ] },
         { label: 'Services', items: [
           { label: 'Authentication', href: p('/auth'), icon: Users },
@@ -45,6 +51,8 @@ export function Sidebar() {
           { label: 'Projects', href: '/projects', icon: FolderOpen },
           { label: 'Organizations', href: '/organizations', icon: Building2 },
           { label: 'System status', href: '/status', icon: Activity },
+          { label: 'Access tokens', href: '/tokens', icon: KeyRound },
+          ...(me.data?.is_platform_admin ? [{ label: 'Billing admin', href: '/admin/billing', icon: Receipt }] : []),
         ] },
       ];
 

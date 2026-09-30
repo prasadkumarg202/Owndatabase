@@ -97,6 +97,8 @@ function client(prefix: string) {
 export const api = client('/api');
 /** Storage API (/storage/v1/...) — accepts the dashboard token for project members */
 export const storage = client('/storage');
+/** Auth service (/auth/v1/...) — admin endpoints accept the dashboard token for project members */
+export const authApi = client('/auth');
 
 export function formatBytes(n: number | null | undefined): string {
   if (n === null || n === undefined || isNaN(Number(n))) return '—';

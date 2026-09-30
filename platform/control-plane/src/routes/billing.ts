@@ -240,6 +240,30 @@ export const billingRoutes: FastifyPluginAsync = async (server: FastifyInstance)
     return reply.send({ gst: value });
   });
 
+  // lists for the admin billing page (dashboard → Admin → Billing)
+  server.get('/api/admin/billing/invoices', auth, async (request, reply) => {
+    if (!(await requirePlatformAdmin(request, reply))) return;
+    const q = request.query as { status?: string; limit?: string };
+    const status = ['open', 'paid', 'void'].includes(String(q.status)) ? String(q.status) : null;
+    const limit = Math.min(Math.max(Number(q.limit) || 100, 1), 500);
+    const rows = await db`
+      SELECT i.id, i.number, i.kind, i.plan_id, i.period_start, i.period_end, i.currency, i.total, i.subtotal, i.tax_total, i.status,
+             i.issued_at, i.paid_at, i.organization_id, o.name AS organization_name
+      FROM control_plane.invoices i JOIN control_plane.organizations o ON o.id = i.organization_id
+      WHERE (${status}::text IS NULL OR i.status = ${status}) ORDER BY i.created_at DESC LIMIT ${limit}`;
+    return reply.send({ data: rows.map((r) => ({ ...r, total: Number(r['total']), subtotal: r['subtotal'] === null ? null : Number(r['subtotal']), tax_total: Number(r['tax_total']) })) });
+  });
+
+  server.get('/api/admin/billing/organizations', auth, async (request, reply) => {
+    if (!(await requirePlatformAdmin(request, reply))) return;
+    const rows = await db`
+      SELECT o.id, o.name, COALESCE(s.plan_id, 'free') AS plan_id, s.pending_plan_id, COALESCE(s.status, 'active') AS status,
+             s.cancel_at_period_end, (SELECT count(*)::int FROM control_plane.projects p WHERE p.organization_id = o.id) AS projects
+      FROM control_plane.organizations o LEFT JOIN control_plane.subscriptions s ON s.organization_id = o.id
+      ORDER BY o.created_at DESC LIMIT 500`;
+    return reply.send({ data: rows });
+  });
+
   server.get('/api/admin/billing/invoices/:invoiceId/document', auth, async (request, reply) => {
     if (!(await requirePlatformAdmin(request, reply))) return;
     const { invoiceId } = request.params as { invoiceId: string };

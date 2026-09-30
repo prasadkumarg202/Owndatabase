@@ -17,10 +17,10 @@ def browser_context_args(browser_context_args):
     return {**browser_context_args, "viewport": {"width": 1440, "height": 900}}
 
 
-ROUTES = ["/login", "/dashboard", "/projects", "/organizations", "/status", "/invite/warmup"] + [
+ROUTES = ["/login", "/dashboard", "/projects", "/organizations", "/status", "/invite/warmup", "/tokens", "/admin/billing"] + [
     f"/projects/00000000-0000-0000-0000-000000000000{p}" for p in
     ["", "/database", "/table", "/sql", "/auth", "/storage", "/realtime", "/functions", "/queues", "/cron",
-     "/webhooks", "/branches", "/backups", "/logs", "/reports", "/settings"]]
+     "/webhooks", "/branches", "/backups", "/logs", "/reports", "/settings", "/graphql", "/migrations"]]
 
 
 @pytest.fixture(scope="session", autouse=True)
