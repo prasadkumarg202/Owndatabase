@@ -3,6 +3,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from '@supabase/supabase-js';
+import * as tus from 'tus-js-client';
 
 const { ODB_URL, ODB_PROJECT_ID, ODB_ANON_KEY, ODB_SERVICE_KEY } = process.env;
 const skip = !ODB_URL || !ODB_PROJECT_ID;
@@ -73,6 +74,31 @@ test('storage: upload, download, public and signed URLs, list, remove', { skip }
   const list = await b.list('dir');
   assert.ok(list.data.some((f) => f.name === 'hello.txt'), JSON.stringify(list));
   assert.equal((await b.remove(['dir/hello.txt'])).error, null);
+});
+
+test('resumable upload with tus-js-client (Supabase docs example)', { skip }, async () => {
+  const db = client(ODB_ANON_KEY);
+  const email = `tus-${Date.now()}@example.com`;
+  assert.equal((await db.auth.signUp({ email, password: 'password-123' })).error, null);
+  const { data: { session } } = await db.auth.signInWithPassword({ email, password: 'password-123' });
+  const data = Buffer.alloc(7 * 1024 * 1024 + 11, 7);          // two 6 MB chunks
+  await new Promise((resolve, reject) => {
+    const upload = new tus.Upload(data, {
+      endpoint: `${url}/storage/v1/upload/resumable`,
+      retryDelays: [0, 1000],
+      headers: { authorization: `Bearer ${session.access_token}`, 'x-upsert': 'true' },
+      uploadDataDuringCreation: true,
+      removeFingerprintOnSuccess: true,
+      metadata: { bucketName: 'compat', objectName: `tus/${email}.bin`, contentType: 'application/octet-stream', cacheControl: '3600' },
+      chunkSize: 6 * 1024 * 1024,
+      onError: reject,
+      onSuccess: resolve,
+    });
+    upload.start();
+  });
+  const dl = await client(ODB_SERVICE_KEY).storage.from('compat').download(`tus/${email}.bin`);
+  assert.equal(dl.error, null, JSON.stringify(dl.error));
+  assert.equal((await dl.data.arrayBuffer()).byteLength, data.length);
 });
 
 test('functions.invoke', { skip }, async () => {

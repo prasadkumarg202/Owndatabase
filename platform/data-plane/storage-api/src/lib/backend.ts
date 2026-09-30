@@ -16,7 +16,8 @@ import { pipeline } from 'node:stream/promises';
 import { randomUUID } from 'node:crypto';
 import {
   S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, CopyObjectCommand,
-  HeadBucketCommand, CreateBucketCommand,
+  HeadBucketCommand, CreateBucketCommand, CreateMultipartUploadCommand, UploadPartCommand,
+  CompleteMultipartUploadCommand, AbortMultipartUploadCommand,
 } from '@aws-sdk/client-s3';
 
 export interface StoredObject { stream: Readable; size: number; contentType?: string }
@@ -25,6 +26,8 @@ export interface StorageBackend {
   name: string;
   init(): Promise<void>;
   put(key: string, body: Buffer, contentType: string): Promise<void>;
+  /** Writes a stream of any length without holding it in memory; returns the number of bytes written. */
+  putStream(key: string, body: AsyncIterable<Buffer>, contentType: string): Promise<number>;
   get(key: string): Promise<StoredObject | null>;
   delete(key: string): Promise<void>;
   copy(from: string, to: string): Promise<void>;
@@ -46,6 +49,15 @@ class FsBackend implements StorageBackend {
     const tmp = `${p}.${randomUUID()}.tmp`;
     await pipeline(Readable.from(body), createWriteStream(tmp));
     await rename(tmp, p);
+  }
+  async putStream(key: string, body: AsyncIterable<Buffer>) {
+    const p = this.path(key);
+    await mkdir(dirname(p), { recursive: true });
+    const tmp = `${p}.${randomUUID()}.tmp`;
+    let n = 0;
+    await pipeline(Readable.from((async function* () { for await (const c of body) { n += c.length; yield c; } })()), createWriteStream(tmp));
+    await rename(tmp, p);
+    return n;
   }
   async get(key: string) {
     const p = this.path(key);
@@ -79,6 +91,40 @@ class S3Backend implements StorageBackend {
   }
   async put(key: string, body: Buffer, contentType: string) {
     await this.s3.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }));
+  }
+  /** S3 multipart upload in PART_SIZE parts (S3 needs >= 5 MiB per part except the last). */
+  async putStream(key: string, body: AsyncIterable<Buffer>, contentType: string) {
+    const PART_SIZE = 8 * 1024 * 1024;
+    let buf: Buffer[] = [], buffered = 0, total = 0, uploadId: string | undefined;
+    const parts: { ETag: string; PartNumber: number }[] = [];
+    const flush = async (last: boolean) => {
+      if (!buffered && !last) return;
+      const chunk = Buffer.concat(buf, buffered);
+      buf = []; buffered = 0;
+      if (!uploadId && last) {  // small object: a single PUT
+        await this.put(key, chunk, contentType);
+        return;
+      }
+      if (!uploadId) {
+        uploadId = (await this.s3.send(new CreateMultipartUploadCommand({ Bucket: this.bucket, Key: key, ContentType: contentType }))).UploadId!;
+      }
+      if (!chunk.length) return;
+      const PartNumber = parts.length + 1;
+      const r = await this.s3.send(new UploadPartCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId, PartNumber, Body: chunk }));
+      parts.push({ ETag: r.ETag!, PartNumber });
+    };
+    try {
+      for await (const c of body) {
+        buf.push(c); buffered += c.length; total += c.length;
+        if (buffered >= PART_SIZE) await flush(false);
+      }
+      await flush(true);
+      if (uploadId) await this.s3.send(new CompleteMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId, MultipartUpload: { Parts: parts } }));
+      return total;
+    } catch (err) {
+      if (uploadId) await this.s3.send(new AbortMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId })).catch(() => {});
+      throw err;
+    }
   }
   async get(key: string) {
     try {

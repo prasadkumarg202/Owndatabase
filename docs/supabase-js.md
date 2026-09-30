@@ -25,7 +25,7 @@ Checked by `tests/test_supabase_js.py`, which runs the real supabase-js
 |---|---|
 | `supabase.from()` (postgrest-js) | select with filters / order / count / `head` / `single`, insert / update / delete with `.select()`, `rpc()` |
 | `supabase.auth` | `signUp`, `signInWithPassword`, `getUser`, `signOut`, RLS as the signed-in user plus `signInWithOAuth` (implicit and PKCE), `signInWithIdToken`, OTP, phone and MFA (docs/oauth.md) |
-| `supabase.storage` | `upload`, `download`, `getPublicUrl`, `createSignedUrl`, `list`, `remove` |
+| `supabase.storage` | `upload`, `download`, `getPublicUrl`, `createSignedUrl`, `list`, `remove`; resumable uploads with tus-js-client ([storage.md](storage.md)) |
 | `supabase.functions.invoke()` | |
 | `supabase.channel()` | `postgres_changes` (with `filter`), `broadcast` (incl. `ack` and `self`), `presence` (`track`, `sync` / `join` / `leave`); realtime protocol 1.0.0 and 2.0.0 (the default), token refresh |
 

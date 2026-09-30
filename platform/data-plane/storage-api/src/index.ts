@@ -41,6 +41,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import { z } from 'zod';
 import { AuthError, PlatformAuth, type RequestAuth } from './lib/platform-auth.js';
 import { createBackend } from './lib/backend.js';
+import { registerResumable, RESUMABLE_MAX_SIZE, TUS_CAPABILITIES } from './resumable.js';
 import { limitOf, QUOTA_ERROR } from './lib/limits.js';
 import { initTracing, shutdownTracing, tracingPlugin } from './lib/tracing.js';
 import { DomainMap } from './lib/domains.js';
@@ -129,11 +130,11 @@ async function rateLimit(req: FastifyRequest, a: RequestAuth) {
   if (n > limit) throw new HttpError(429, `Rate limit of ${limit} requests/minute exceeded`);
 }
 
-async function ctx(req: FastifyRequest): Promise<RequestAuth> {
+async function ctx(req: FastifyRequest, requireKey = true): Promise<RequestAuth> {
   const { projectId } = req.params as { projectId: string };
   let a: RequestAuth;
   try {
-    a = await platform.authenticate(projectId, req.headers as any, req.query as any, { allowPlatformUser: true, ip: req.ip });
+    a = await platform.authenticate(projectId, req.headers as any, req.query as any, { allowPlatformUser: true, ip: req.ip, requireKey });
   } catch (err) {
     if (err instanceof AuthError) throw new HttpError(err.statusCode, err.message);
     throw err;
@@ -242,6 +243,11 @@ async function assertStorageQuota(project: { id: string; settings?: Record<strin
   }
 }
 
+function mimeAllowed(b: Bucket, mime: string) {
+  const allowed = b.allowed_mime_types ?? [];
+  return !allowed.length || allowed.some((m) => m === mime || (m.endsWith('/*') && mime.startsWith(m.slice(0, -1))));
+}
+
 async function findObject(b: Bucket, path: string) {
   const [o] = await db`SELECT * FROM storage.objects WHERE bucket_id = ${b.id} AND name = ${path} AND NOT is_deleted`;
   return o ?? null;
@@ -260,7 +266,19 @@ server.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, bo
   try { done(null, JSON.parse(body as string)); } catch (err) { (err as any).statusCode = 400; done(err as Error, undefined); }
 });
 await server.register(helmet, { contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } });
-await server.register(cors, { origin: true, credentials: true, allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-api-key', 'x-upsert', 'cache-control', 'x-client-info'] });
+// tus capability discovery: OPTIONS on the upload URLs carries the Tus-* headers
+server.addHook('onRequest', async (req, reply) => {
+  if (req.method === 'OPTIONS' && req.url.includes('/upload/resumable')) reply.headers(TUS_CAPABILITIES);
+});
+await server.register(cors, {
+  origin: true, credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-api-key', 'x-upsert', 'cache-control', 'x-client-info',
+    'tus-resumable', 'upload-length', 'upload-offset', 'upload-metadata', 'upload-defer-length', 'upload-concat'],
+  exposedHeaders: ['Location', 'Upload-Offset', 'Upload-Length', 'Upload-Expires', 'Tus-Resumable', 'Tus-Version', 'Tus-Extension', 'Tus-Max-Size'],
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  // a plain OPTIONS (no Origin) is a tus capability request
+  strictPreflight: false,
+});
 await server.register(multipart, { limits: { fileSize: MAX_UPLOAD_SIZE, files: 1 } });
 server.addContentTypeParser('*', { parseAs: 'buffer', bodyLimit: MAX_UPLOAD_SIZE }, (_req, body, done) => done(null, body));
 
@@ -280,7 +298,8 @@ server.get('/metrics', async (_req, reply) => reply.header('Content-Type', regis
 const bucketSchema = z.object({
   name: z.string().regex(BUCKET_NAME, 'Bucket names: lowercase letters, digits, dot, dash, underscore (max 63); reserved: public, sign, info, list, move, copy, authenticated'),
   public: z.boolean().default(false),
-  file_size_limit: z.number().int().positive().max(MAX_UPLOAD_SIZE).nullable().optional(),
+  // up to the resumable-upload limit: bigger than one request allows, uploaded with TUS
+  file_size_limit: z.number().int().positive().max(Math.max(MAX_UPLOAD_SIZE, RESUMABLE_MAX_SIZE)).nullable().optional(),
   allowed_mime_types: z.array(z.string().regex(/^[\w.+-]+\/[\w.+*-]+$/)).nullable().optional(),
   read_access: z.enum(['public', 'authenticated', 'owner']).optional(),
   write_access: z.enum(['authenticated', 'owner', 'service']).optional(),
@@ -402,8 +421,8 @@ async function upload(req: FastifyRequest, reply: FastifyReply, forceUpsert: boo
     if (b.file_size_limit && data.length > Number(b.file_size_limit)) {
       throw new HttpError(413, `File size ${data.length} exceeds the bucket limit of ${b.file_size_limit} bytes`);
     }
-    const allowed = b.allowed_mime_types ?? [];
-    if (allowed.length && !allowed.some((m) => m === mime || (m.endsWith('/*') && mime.startsWith(m.slice(0, -1))))) {
+    if (!mimeAllowed(b, mime)) {
+      const allowed = b.allowed_mime_types ?? [];
       throw new HttpError(415, `MIME type ${mime} is not allowed in this bucket (allowed: ${allowed.join(', ')})`);
     }
 
@@ -431,6 +450,20 @@ async function upload(req: FastifyRequest, reply: FastifyReply, forceUpsert: boo
     });
   } catch (err) { return fail(reply, err); }
 }
+
+// Resumable uploads (TUS), see resumable.ts
+registerResumable(server, {
+  db, backend, publicPath: STORAGE_PUBLIC_PATH, HttpError, getBucket,
+  // Supabase's tus examples send only "authorization: Bearer <user access token>" (the token is signed for one project)
+  ctx: (req) => {
+    if (!PlatformAuth.extractApiKey(req.headers as any, req.query as any) && !PlatformAuth.extractBearer(req.headers as any)) {
+      throw new HttpError(401, 'Send an apikey header or a user access token (Authorization: Bearer)');
+    }
+    return ctx(req, false);
+  }, validPath, canWrite, findObject,
+  assertStorageQuota, storageKey, mimeAllowed, fail,
+  onUploaded: async (projectId, bytes) => { uploadBytes.inc({ project_id: projectId }, bytes); await usage(projectId, 'storage_uploads'); },
+});
 
 server.post('/v1/:projectId/object/:bucket/*', (req, reply) => upload(req, reply, false));
 server.put('/v1/:projectId/object/:bucket/*', (req, reply) => upload(req, reply, true));
