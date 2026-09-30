@@ -31,6 +31,7 @@ import { AuthError, PlatformAuth, type ApiRole, type ProjectInfo } from './lib/p
 import { limitOf } from './lib/limits.js';
 import { initTracing, shutdownTracing, tracingPlugin } from './lib/tracing.js';
 import { DomainMap } from './lib/domains.js';
+import { leaveAllPresence, phoenixDecode, phoenixDeliver, phoenixHandle, type PhoenixState, type PhxDeps } from './phoenix.js';
 
 const PORT = Number(process.env['PORT'] ?? 3004);
 const DATABASE_URL = process.env['DATABASE_URL']!;
@@ -70,11 +71,14 @@ interface Client {
   subs: Map<string, Sub>;
   presence: Map<string, Record<string, unknown>>;
   msgWindow: { second: number; count: number };
+  /** set for Supabase-protocol connections (/realtime/v1/websocket) */
+  phoenix?: PhoenixState;
 }
 
 const clients = new Map<string, Client>();
 
 function send(c: Client, msg: Record<string, unknown>) {
+  if (c.phoenix) return phoenixDeliver(c, msg, phxDeps);
   if (c.socket.readyState === 1) c.socket.send(JSON.stringify(msg));
 }
 
@@ -235,6 +239,13 @@ async function publish(projectId: string, channel: string, data: Record<string, 
 
 const presenceKey = (projectId: string, room: string) => `rt:presence:${projectId}:${room}`;
 
+const phxDeps: PhxDeps = {
+  db, redis, presenceKey, maxSubs: MAX_SUBS,
+  publish: (projectId, channel, data, exclude) => publish(projectId, channel, data, exclude),
+  verifyUserToken: (token, projectId) => platform.verifyUserToken(token, projectId).catch(() => null),
+  onSubsChanged: (projectId, delta) => { if (delta > 0) subscriptionsActive.inc({ project_id: projectId }, delta); else subscriptionsActive.dec({ project_id: projectId }, -delta); },
+};
+
 async function presenceState(projectId: string, room: string) {
   const all = await redis.hgetall(presenceKey(projectId, room));
   return Object.entries(all).map(([connection_id, v]) => ({ connection_id, ...JSON.parse(v) }));
@@ -347,8 +358,75 @@ server.get('/realtime', { websocket: true }, async (conn: any, request) => {
     clearInterval(heartbeat);
     for (const room of c.presence.keys()) {
       void redis.hdel(presenceKey(projectId, room), c.id);
-      void publish(projectId, `presence:${room}`, { type: 'presence', event: 'leave', channel: room, connection_id: c.id }, c.id);
+      void publish(projectId, `presence:${room}`, { type: 'presence', event: 'leave', channel: room, connection_id: c.id, key: c.id }, c.id);
     }
+    subscriptionsActive.dec({ project_id: projectId }, c.subs.size);
+    activeConnections.dec({ project_id: projectId });
+    clients.delete(c.id);
+  });
+  socket.on('error', () => {});
+});
+
+// Supabase Realtime protocol (supabase-js): ws(s)://<host>/p/<projectId>/realtime/v1/websocket?apikey=…&vsn=1.0.0
+// (the gateway turns /p/<id>/… and custom domains into ?project_id=<id>)
+server.get('/realtime/v1/websocket', { websocket: true }, async (conn: any, request) => {
+  const socket: WebSocket = conn.socket ?? conn;
+  const q = request.query as Record<string, string>;
+  const projectId = q['project_id'] ?? '';
+  const fail = (code: number, msg: string) => {
+    socket.send(q['vsn'] === '2.0.0'
+      ? JSON.stringify([null, null, 'phoenix', 'phx_error', { reason: msg }])
+      : JSON.stringify({ topic: 'phoenix', event: 'phx_error', payload: { reason: msg }, ref: null }));
+    socket.close(code, msg.slice(0, 100));
+  };
+  const vsn = q['vsn'] === '2.0.0' ? '2.0.0' : '1.0.0';
+  // supabase-js sends its first join as soon as the socket opens: queue frames until authentication is done
+  const early: [Buffer, boolean][] = [];
+  const queueEarly = (raw: Buffer, isBinary: boolean) => { if (early.length < 100) early.push([raw, isBinary]); };
+  socket.on('message', queueEarly);
+  if (q['vsn'] && !['1.0.0', '2.0.0'].includes(q['vsn'])) return fail(4000, `Unsupported serializer version ${q['vsn']}`);
+  let auth;
+  try {
+    auth = await platform.authenticate(projectId, request.headers as any, q, { ip: request.ip });
+  } catch (err) {
+    return fail(4001, err instanceof AuthError ? err.message : 'Authentication failed');
+  }
+  const maxConn = limitOf(auth.project, 'realtime_connections');
+  if (maxConn !== null && [...clients.values()].filter((x) => x.project.id === auth.project.id).length >= maxConn) {
+    return fail(4029, `This project has reached its limit of ${maxConn} realtime connections`);
+  }
+  const c: Client = {
+    id: randomUUID(), socket, project: auth.project, role: auth.role, claims: auth.claims, userId: auth.userId,
+    subs: new Map(), presence: new Map(), msgWindow: { second: 0, count: 0 },
+    phoenix: { channels: new Map(), nextBindingId: 1, vsn },
+  };
+  clients.set(c.id, c);
+  activeConnections.inc({ project_id: projectId });
+
+  socket.off('message', queueEarly);
+  const onMessage = async (raw: Buffer, isBinary: boolean) => {
+    const sec = Math.floor(Date.now() / 1000);
+    if (c.msgWindow.second !== sec) c.msgWindow = { second: sec, count: 0 };
+    if (++c.msgWindow.count > MAX_MSG_PER_SEC) return;
+    let msg: any;
+    try { msg = phoenixDecode(raw, isBinary); } catch { return; }
+    try { await phoenixHandle(c, msg, phxDeps); }
+    catch (err) {
+      server.log.error({ err }, 'phoenix message failed');
+      if (msg?.ref) {
+        const payload = { status: 'error', response: { reason: 'Internal error' } };
+        socket.send(vsn === '2.0.0' ? JSON.stringify([msg.join_ref ?? null, msg.ref, msg.topic, 'phx_reply', payload]) : JSON.stringify({ topic: msg.topic, event: 'phx_reply', payload, ref: msg.ref, join_ref: msg.join_ref ?? null }));
+      }
+    }
+  };
+  // one message at a time, in arrival order (queued frames first)
+  let chain: Promise<void> = Promise.resolve();
+  const enqueue = (raw: Buffer, isBinary: boolean) => { chain = chain.then(() => onMessage(raw, isBinary)).catch(() => {}); };
+  for (const [raw, isBinary] of early.splice(0)) enqueue(raw, isBinary);
+  socket.on('message', enqueue);
+
+  socket.on('close', () => {
+    void leaveAllPresence(c, phxDeps);
     subscriptionsActive.dec({ project_id: projectId }, c.subs.size);
     activeConnections.dec({ project_id: projectId });
     clients.delete(c.id);

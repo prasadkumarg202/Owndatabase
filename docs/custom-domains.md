@@ -11,10 +11,9 @@ with the same paths as Supabase (no project id in the URL):
 | `https://api.example.com/functions/v1/hello` | `/functions/v1/<projectId>/hello` |
 | `wss://api.example.com/realtime?apikey=…` | `/realtime?project_id=<projectId>&apikey=…` |
 
-So with `createClient('https://api.example.com', anonKey)` from supabase-js,
-its REST, auth, storage and functions clients talk to the project directly
-(supabase-js realtime uses Supabase's Phoenix protocol, which OwnDatabase's
-realtime does not speak — use the OwnDatabase client for that). Paths that
+So `createClient('https://api.example.com', anonKey)` from supabase-js works
+for the database, auth, storage, functions and realtime (docs/supabase-js.md;
+without a custom domain use `https://<platform>/p/<projectId>`). Paths that
 include a project id keep working, and API
 keys still decide access (another project's key is refused on your domain).
 

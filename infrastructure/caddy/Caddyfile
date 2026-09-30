@@ -25,6 +25,15 @@
 # Routes, shared by every site below
 # ─────────────────────────────────────────────────────────────────────────────
 (routes) {
+    # ── Project URL prefix, for supabase-js and other Supabase clients:
+    #    createClient('https://<host>/p/<projectId>', anonKey)
+    #    /p/<id>/rest/v1/orders → /rest/v1/<id>/orders (same for auth, storage, functions, graphql)
+    @project path_regexp project ^/p/([0-9a-fA-F-]{36})/(rest|auth|storage|functions|graphql)/v1(/.*)?$
+    rewrite @project /{re.project.2}/v1/{re.project.1}{re.project.3}
+    #    /p/<id>/realtime/v1/websocket → the Supabase-protocol realtime endpoint
+    @projectrt path_regexp projectrt ^/p/([0-9a-fA-F-]{36})/realtime/v1/websocket$
+    rewrite @projectrt /realtime/v1/websocket?project_id={re.projectrt.1}&{query}
+
     # Security headers
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"

@@ -1,0 +1,9 @@
+{
+  "name": "owndatabase-supabase-js-compat",
+  "private": true,
+  "type": "module",
+  "description": "Runs the real @supabase/supabase-js against an OwnDatabase project (tests/test_supabase_js.py)",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0"
+  }
+}

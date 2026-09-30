@@ -126,7 +126,7 @@ def test_signed_urls(buckets, project):
     project.storage("POST", "object/private-docs/signed.txt", key=s, data=b"top secret", headers={"content-type": "text/plain", "x-upsert": "true"})
     r = project.storage("POST", "object/sign/private-docs/signed.txt", key=s, json={"expiresIn": 2})
     assert r.status_code == 200, r.text
-    url = f"{URLS['storage']}{r.json()['signedURL']}"
+    url = r.json()['signedUrl']
     assert requests.get(url, timeout=10).content == b"top secret"
     tampered = url.replace("signed.txt", "raw.txt")
     assert requests.get(tampered, timeout=10).status_code == 400

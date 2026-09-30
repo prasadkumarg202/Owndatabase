@@ -80,7 +80,11 @@ export class PlatformAuth {
   constructor(private db: postgres.Sql<any>, jwtSecret: string, subscriber?: Redis) {
     this.secret = new TextEncoder().encode(jwtSecret);
     if (subscriber) {
-      void subscriber.subscribe('odb:apikey-revoked', 'odb:project-changed').catch(() => {});
+      // (re)subscribe on every ready, not only once: a subscribe issued while the
+      // connection was starting was seen to be dropped, leaving caches stale
+      const sub = () => void subscriber.subscribe('odb:apikey-revoked', 'odb:project-changed').catch(() => {});
+      sub();
+      subscriber.on('ready', sub);
       subscriber.on('message', (channel: string, msg: string) => {
         if (channel === 'odb:apikey-revoked') this.keyCache.delete(msg);
         if (channel === 'odb:project-changed') this.projectCache.delete(msg);

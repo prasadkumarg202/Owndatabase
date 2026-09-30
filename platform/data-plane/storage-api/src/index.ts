@@ -231,6 +231,11 @@ initTracing('storage-api');
 const domains = new DomainMap(db, redisSub);
 const server = Fastify({ logger: { level: process.env['LOG_LEVEL'] ?? 'info', base: { service: 'storage-api' } }, trustProxy: true, rewriteUrl: domains.rewrite, bodyLimit: MAX_UPLOAD_SIZE });
 tracingPlugin(server);
+// Supabase clients send "content-type: application/json" with no body (e.g. POST /logout)
+server.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+  if (body === '' || body === undefined) return done(null, {});
+  try { done(null, JSON.parse(body as string)); } catch (err) { (err as any).statusCode = 400; done(err as Error, undefined); }
+});
 await server.register(helmet, { contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } });
 await server.register(cors, { origin: true, credentials: true, allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-api-key', 'x-upsert', 'cache-control', 'x-client-info'] });
 await server.register(multipart, { limits: { fileSize: MAX_UPLOAD_SIZE, files: 1 } });
@@ -582,7 +587,8 @@ server.post('/v1/:projectId/object/sign/:bucket/*', async (req, reply) => {
       VALUES (${obj['id'] as string}, ${createHash('sha256').update(token).digest('hex')}, NOW() + make_interval(secs => ${body.data.expiresIn}), NULL, ${a.userId})`;
     const rel = `/v1/${a.project.id}/object/sign/${bucket}/${path}?token=${token}`;
     return reply.send({
-      signedURL: rel, signedUrl: `${PUBLIC_URL}${STORAGE_PUBLIC_PATH}${rel}`,
+      // signedURL is relative to the project's storage URL (as Supabase's; storage-js appends it), signedUrl is absolute
+      signedURL: rel.replace(`/v1/${a.project.id}`, ''), signedUrl: `${PUBLIC_URL}${STORAGE_PUBLIC_PATH}${rel}`,
       expiresIn: body.data.expiresIn, expiresAt: new Date(Date.now() + body.data.expiresIn * 1000).toISOString(), path,
     });
   } catch (err) { return fail(reply, err); }

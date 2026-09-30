@@ -33,6 +33,11 @@ const server = Fastify({
 });
 tracingPlugin(server);
 
+// Supabase clients send "content-type: application/json" with no body (e.g. POST /logout)
+server.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+  if (body === '' || body === undefined) return done(null, {});
+  try { done(null, JSON.parse(body as string)); } catch (err) { (err as any).statusCode = 400; done(err as Error, undefined); }
+});
 await server.register(helmet, { contentSecurityPolicy: false });
 await server.register(cors, {
   origin: true, credentials: true,

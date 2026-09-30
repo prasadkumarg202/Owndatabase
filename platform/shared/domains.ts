@@ -28,7 +28,11 @@ export class DomainMap {
     void this.load();
     setInterval(() => void this.load(), 60_000).unref();
     if (subscriber) {
-      void subscriber.subscribe('odb:domains-changed').catch(() => {});
+      // (re)subscribe on every ready, not only once: a subscribe issued while the
+      // connection was starting was seen to be dropped, leaving caches stale
+      const sub = () => void subscriber.subscribe('odb:domains-changed').catch(() => {});
+      sub();
+      subscriber.on('ready', sub);
       subscriber.on('message', (channel: string) => { if (channel === 'odb:domains-changed') void this.load(); });
     }
   }

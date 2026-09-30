@@ -58,7 +58,7 @@ export default function StoragePage() {
   });
   const sign = useMutation({
     mutationFn: (path: string) => storage.post(`/v1/${id}/object/sign/${bucket}/${path}`, { expiresIn: 3600 }),
-    onSuccess: (r) => setSigned(`${location.origin}/storage${r.signedURL}`), onError: (e) => toast.error(e),
+    onSuccess: (r) => setSigned(r.signedUrl), onError: (e) => toast.error(e),
   });
 
   async function download(path: string) {
