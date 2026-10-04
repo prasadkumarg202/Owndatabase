@@ -41,7 +41,8 @@ server.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, bo
 await server.register(helmet, { contentSecurityPolicy: false });
 await server.register(cors, {
   origin: true, credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-api-key', 'Prefer', 'Range', 'Accept-Profile', 'Content-Profile', 'x-client-info'],
+  // no fixed list: the browser's requested headers are allowed (supabase-js adds x-supabase-api-version and
+  // others over time); access is decided by the API key and the user's token, not by header names
   exposedHeaders: ['Content-Range', 'X-Next-Cursor', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'x-trace-id', 'x-odb-read-from'],
   methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
 });

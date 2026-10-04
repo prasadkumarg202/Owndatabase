@@ -48,7 +48,8 @@ server.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'str
 await server.register(helmet, { contentSecurityPolicy: false });
 await server.register(cors, {
   origin: true, credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-api-key', 'x-client-info'],
+  // no fixed list: the browser's requested headers are allowed (supabase-js adds x-supabase-api-version and
+  // others over time); access is decided by the API key and the user's token, not by header names
 });
 
 server.addHook('onResponse', async (req, reply) => {

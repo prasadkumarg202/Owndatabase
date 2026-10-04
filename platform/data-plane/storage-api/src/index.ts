@@ -272,8 +272,8 @@ server.addHook('onRequest', async (req, reply) => {
 });
 await server.register(cors, {
   origin: true, credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'apikey', 'x-api-key', 'x-upsert', 'cache-control', 'x-client-info',
-    'tus-resumable', 'upload-length', 'upload-offset', 'upload-metadata', 'upload-defer-length', 'upload-concat'],
+  // no fixed list: the browser's requested headers are allowed (supabase-js adds x-supabase-api-version and
+  // others over time); access is decided by the API key and the user's token, not by header names
   exposedHeaders: ['Location', 'Upload-Offset', 'Upload-Length', 'Upload-Expires', 'Tus-Resumable', 'Tus-Version', 'Tus-Extension', 'Tus-Max-Size'],
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   // a plain OPTIONS (no Origin) is a tus capability request
