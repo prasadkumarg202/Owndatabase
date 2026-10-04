@@ -26,6 +26,7 @@ import { pgQueueRoutes } from './routes/pg-queues.js';
 import { domainCheckRoutes, domainRoutes } from './routes/domains.js';
 import { vaultInternalRoutes, vaultRoutes } from './routes/vault.js';
 import { logDrainRoutes } from './routes/log-drains.js';
+import { platformAdminRoutes } from './routes/platform-admin.js';
 import { branchRoutes } from './routes/branches.js';
 import { billingRoutes } from './routes/billing.js';
 import { tokenRoutes, authenticatePat } from './routes/tokens.js';
@@ -129,6 +130,7 @@ export async function buildApp() {
   await server.register(domainCheckRoutes, { prefix: '/api/internal' });
   await server.register(vaultInternalRoutes, { prefix: '/api/internal' });
   await server.register(vaultRoutes);
+  await server.register(platformAdminRoutes);
   await server.register(tokenRoutes, { prefix: '/api/auth/tokens' });
   await server.register(observabilityRoutes, { prefix: '/api' });
   await server.register(apiKeyRoutes, { prefix: '/api/keys' });

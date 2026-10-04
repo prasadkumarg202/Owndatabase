@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, FolderOpen, Database, Code2, Users, HardDrive, Radio, Zap, Clock, ListOrdered,
   Archive, ScrollText, Activity, Settings, BarChart2, ExternalLink, Home, Building2, Webhook, GitBranch,
-  Braces, History, KeyRound, Receipt,
+  Braces, History, KeyRound, Receipt, Shield,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
@@ -52,7 +52,10 @@ export function Sidebar() {
           { label: 'Organizations', href: '/organizations', icon: Building2 },
           { label: 'System status', href: '/status', icon: Activity },
           { label: 'Access tokens', href: '/tokens', icon: KeyRound },
-          ...(me.data?.is_platform_admin ? [{ label: 'Billing admin', href: '/admin/billing', icon: Receipt }] : []),
+          ...(me.data?.is_platform_admin ? [
+            { label: 'Platform admin', href: '/admin', icon: Shield, exact: true },
+            { label: 'Billing admin', href: '/admin/billing', icon: Receipt },
+          ] : []),
         ] },
       ];
 
