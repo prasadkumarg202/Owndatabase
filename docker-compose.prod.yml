@@ -1,0 +1,49 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Production override (docs/deploy.md)
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Builds the `production` stage of every service (compiled, non-root, no dev
+# dependencies) instead of `development`, and drops the source-code mounts that
+# hot reload needs. Data volumes stay. Set NODE_ENV=production and
+# PRIMARY_DOMAIN=<your domain> in .env.
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  control-api:
+    build: { target: production }
+    volumes: !override
+      - ./platform/migrations:/app/migrations:ro
+
+  dashboard:
+    build: { target: production }
+    volumes: !reset []
+
+  auth-service:
+    build: { target: production }
+    volumes: !reset []
+
+  api-service:
+    build: { target: production }
+    volumes: !reset []
+
+  realtime-service:
+    build: { target: production }
+    volumes: !reset []
+
+  storage-api:
+    build: { target: production }
+    volumes: !override
+      - storage_data:/data/storage
+
+  queue-worker:
+    build: { target: production }
+    volumes: !reset []
+
+  cron-scheduler:
+    build: { target: production }
+    volumes: !reset []
+
+  backup-worker:
+    build: { target: production }
+    volumes: !override
+      - backup_data:/backups

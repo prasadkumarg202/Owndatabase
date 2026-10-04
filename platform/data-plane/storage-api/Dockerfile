@@ -20,6 +20,8 @@ RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 owndataba
 COPY --from=deps --chown=owndatabase:nodejs /app/node_modules ./node_modules
 COPY --from=build --chown=owndatabase:nodejs /app/dist ./dist
 COPY --from=build --chown=owndatabase:nodejs /app/package.json ./
+# the storage volume takes this directory's owner when Docker first creates it
+RUN mkdir -p /data/storage && chown -R owndatabase:nodejs /data
 USER owndatabase
 EXPOSE 3005
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \

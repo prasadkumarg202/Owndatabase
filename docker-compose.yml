@@ -33,6 +33,8 @@ services:
       - caddy_config:/config
     environment:
       - DOMAIN=${DOMAIN:-localhost}
+      # production: the platform's domain, served over HTTPS (docs/deploy.md)
+      - PRIMARY_DOMAIN=${PRIMARY_DOMAIN:-unused.localhost}
     networks:
       owndatabase:
       # functions call the platform APIs through the gateway only

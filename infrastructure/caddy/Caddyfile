@@ -157,9 +157,20 @@
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# The platform's own domain (PRIMARY_DOMAIN, docs/deploy.md): HTTPS with a
+# Let's Encrypt certificate. Unset in development (a name nothing uses).
+# ─────────────────────────────────────────────────────────────────────────────
+{$PRIMARY_DOMAIN:unused.localhost} {
+    import routes
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Plain HTTP (local development, and any host on :80)
 # ─────────────────────────────────────────────────────────────────────────────
 :80 {
+    # the platform domain always goes to HTTPS (this catch-all would hide Caddy's own redirect)
+    @primary host {$PRIMARY_DOMAIN:unused.localhost}
+    redir @primary https://{host}{uri} 308
     import routes
 }
 

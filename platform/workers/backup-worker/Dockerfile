@@ -25,6 +25,8 @@ RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 owndataba
 COPY --from=build --chown=owndatabase:nodejs /app/node_modules ./node_modules
 COPY --from=build --chown=owndatabase:nodejs /app/dist ./dist
 COPY --from=build --chown=owndatabase:nodejs /app/package.json ./package.json
+# the backups volume takes this directory's owner when Docker first creates it
+RUN mkdir -p /backups && chown owndatabase:nodejs /backups
 USER owndatabase
 EXPOSE 3008
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 CMD wget -qO- http://127.0.0.1:3008/health || exit 1
