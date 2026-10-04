@@ -61,6 +61,8 @@ export async function provisionProjectSchema(schema: string, password: string): 
     await sql.unsafe(`REVOKE CREATE ON SCHEMA public FROM PUBLIC`);
     // per-project API roles; USAGE on the schema only for them
     await sql`SELECT odb_meta.secure_project_schema(${schema})`;
+    // read its own project's rows of auth.users (migration 030)
+    await sql.unsafe(`DO $$ BEGIN IF to_regprocedure('odb_meta.grant_project_auth_read(text)') IS NOT NULL THEN PERFORM odb_meta.grant_project_auth_read(${literal(schema)}); END IF; END $$`);
   });
 }
 

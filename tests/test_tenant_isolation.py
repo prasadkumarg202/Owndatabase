@@ -113,3 +113,25 @@ def test_api_services_can_switch_into_project_roles_but_hold_none_of_their_acces
         assert psql(f"select pg_has_role('{svc}', '{role(a.schema, 'service_role')}', 'SET')") == "t", svc
     for svc in ("odb_auth", "odb_storage", "odb_worker", "odb_cron"):
         assert psql(f"select pg_has_role('{svc}', '{role(a.schema, 'service_role')}', 'SET')") == "f", svc
+
+
+def test_project_reads_only_its_own_users(owner):
+    """Supabase apps read auth.users from SECURITY DEFINER functions; each project sees only its own rows."""
+    a, b = create_project(owner, "users a"), create_project(owner, "users b")
+    ua, ub = a.new_user(), b.new_user()
+    rows = a.sql("select email from auth.users")["data"]
+    assert [r["email"] for r in rows] == [ua["email"]], rows
+    assert b.sql(f"select count(*) as n from auth.users where email = '{ua['email']}'")["data"][0]["n"] in (0, "0")
+    # a Supabase-style signup trigger chain: definer function reads auth.users for the new user
+    a.sql("""
+        create table profiles (id uuid primary key references auth.users(id), email text);
+        create function copy_email() returns trigger language plpgsql security definer set search_path = public as $$
+        begin
+          new.email := (select u.email from auth.users u where u.id = new.id);
+          return new;
+        end $$;
+        create trigger trg before insert on profiles for each row execute function copy_email();
+        insert into profiles (id) values ('""" + ua["user"]["id"] + """');""")
+    assert a.sql("select email from profiles")["data"][0]["email"] == ua["email"]
+    # the auth service still signs users up and in normally
+    assert a.auth("POST", "token?grant_type=password", json={"email": ua["email"], "password": ua["password"]}).status_code == 200
