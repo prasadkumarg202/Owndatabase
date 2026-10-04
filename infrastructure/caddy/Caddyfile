@@ -164,12 +164,17 @@
     import routes
 }
 
+# www.<domain> → <domain>
+www.{$PRIMARY_DOMAIN:unused.localhost} {
+    redir https://{$PRIMARY_DOMAIN:unused.localhost}{uri} 308
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Plain HTTP (local development, and any host on :80)
 # ─────────────────────────────────────────────────────────────────────────────
 :80 {
     # the platform domain always goes to HTTPS (this catch-all would hide Caddy's own redirect)
-    @primary host {$PRIMARY_DOMAIN:unused.localhost}
+    @primary host {$PRIMARY_DOMAIN:unused.localhost} www.{$PRIMARY_DOMAIN:unused.localhost}
     redir @primary https://{host}{uri} 308
     import routes
 }
