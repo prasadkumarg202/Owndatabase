@@ -1,280 +1,311 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
-  ArrowRight, Check, Code2, Database, FileText, Film, HardDrive, Image as ImageIcon,
-  KeyRound, MousePointer2, Radio, Sparkles, Webhook,
+  ArrowRight, BadgeIndianRupee, Bell, Boxes, Check, CheckCircle2, Clock, CloudUpload, Code2,
+  Database, FileText, Gauge, HardDrive, KeyRound, Mail, MessageSquareText, Moon, Radio,
+  Receipt, Rocket, ShieldCheck, Smartphone, Sparkles, Sprout, TrendingUp, Webhook, Zap,
 } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: { absolute: 'AapStack | The PostgreSQL development platform, hosted in India' },
+  title: { absolute: 'AapStack | Backend for startups: database, OTP, SMS, email and APIs, hosted in India' },
   description:
-    'Start your project with a PostgreSQL database. Add authentication, instant APIs, functions, realtime, storage and vector embeddings. Supabase-compatible, hosted in Mumbai.',
+    'AapStack gives startups a PostgreSQL database, phone OTP and SMS, email via Gmail or any SMTP, social logins, instant APIs, storage and realtime on servers in Mumbai. Free plan that never sleeps, GST invoices, pay with UPI.',
   robots: { index: true, follow: true },
 };
 
-/* ── Card shell ─────────────────────────────────────────────────────────── */
+/* ── Data ───────────────────────────────────────────────────────────────── */
 
-function Card({ icon: Icon, title, children, art, className = '' }: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  children: React.ReactNode;
-  art?: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={`group relative flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:border-slate-300 hover:shadow-sm ${className}`}>
-      <div className="relative z-10 p-6">
-        <div className="flex items-center gap-2 text-slate-900">
-          <Icon className="h-4 w-4" />
-          <h3 className="text-sm font-medium">{title}</h3>
-        </div>
-        <div className="mt-3 text-sm leading-relaxed text-slate-500">{children}</div>
-      </div>
-      {art && <div className="relative mt-auto" aria-hidden="true">{art}</div>}
-    </div>
-  );
-}
+const flow = [
+  { icon: Smartphone, label: 'OTP sent to +91 98•••••210', via: 'MSG91 SMS', ms: '1.2 s' },
+  { icon: KeyRound, label: 'Phone verified, session issued', via: 'AapStack Auth', ms: '18 ms' },
+  { icon: Mail, label: 'Welcome email delivered', via: 'Gmail SMTP', ms: '0.9 s' },
+  { icon: Database, label: 'POST /rest/v1/profiles  201', via: 'Instant API', ms: '31 ms' },
+  { icon: Bell, label: 'New signup posted to #growth', via: 'Webhook → Slack', ms: '0.4 s' },
+];
 
-const hl = 'text-slate-900';
+const stats = [
+  { value: 'Mumbai', label: 'Servers in India, about 30 ms queries for Indian users' },
+  { value: '50,000', label: 'Users included on the free plan' },
+  { value: '14+', label: 'Social logins, plus SAML single sign-on' },
+  { value: '0', label: 'Times your free project gets paused' },
+];
 
-/* ── Card illustrations (decorative) ────────────────────────────────────── */
+const integrations = [
+  { icon: Smartphone, title: 'SMS & WhatsApp OTP', tone: 'emerald', items: ['Twilio', 'MSG91', 'Gupshup', 'AWS SNS', 'WhatsApp'], body: 'Phone sign-in with one-time codes. Use the built-in Twilio connector or plug any provider in through a webhook.' },
+  { icon: Mail, title: 'Email', tone: 'rose', items: ['Gmail', 'Zoho Mail', 'Resend', 'Any SMTP'], body: 'Verification, magic links, password resets and OTP emails sent through the mailbox you already have.' },
+  { icon: KeyRound, title: 'Social logins', tone: 'blue', items: ['Google', 'Apple', 'Microsoft', 'GitHub', 'LinkedIn', 'Facebook', 'SAML SSO'], body: 'One-click sign-in with the accounts your users trust, and enterprise SSO when bigger customers ask for it.' },
+  { icon: HardDrive, title: 'File storage', tone: 'amber', items: ['Amazon S3', 'Cloudflare R2', 'Backblaze', 'MinIO'], body: 'Keep uploads on the storage you choose, with public and private buckets, signed links and image resizing.' },
+  { icon: Webhook, title: 'Webhooks & automation', tone: 'violet', items: ['Slack', 'Zapier', 'n8n', 'Your API'], body: 'Fire a webhook on any insert, update or delete, run cron jobs and queue background work without extra servers.' },
+  { icon: Sparkles, title: 'AI ready', tone: 'cyan', items: ['pgvector', 'OpenAI', 'Hugging Face', 'MCP'], body: 'Store embeddings next to your data for search and recommendations, and let AI assistants manage projects over MCP.' },
+];
 
-function DatabaseArt() {
-  return (
-    <div className="pointer-events-none absolute -bottom-6 -right-6 hidden h-56 w-56 items-center justify-center rounded-[2.5rem] border border-slate-200 bg-gradient-to-br from-slate-50 to-white sm:flex">
-      <div className="flex h-40 w-40 items-center justify-center rounded-[2rem] border border-slate-200 bg-white shadow-inner">
-        <Database className="h-20 w-20 text-slate-300 transition group-hover:text-blue-400" strokeWidth={1} />
-      </div>
-    </div>
-  );
-}
+const toneClasses: Record<string, string> = {
+  emerald: 'bg-emerald-50 text-emerald-600',
+  rose: 'bg-rose-50 text-rose-600',
+  blue: 'bg-blue-50 text-blue-600',
+  amber: 'bg-amber-50 text-amber-600',
+  violet: 'bg-violet-50 text-violet-600',
+  cyan: 'bg-cyan-50 text-cyan-600',
+};
 
-function AuthArt() {
-  const rows = ['priya@gmail.com', 'ravi.k@outlook.com', '', 'anil@vizag.in'];
-  return (
-    <div className="space-y-2 px-6 pb-6">
-      {rows.map((r, i) => (
-        <div key={i} className="flex gap-2">
-          <div className="h-8 flex-1 truncate rounded-md border border-slate-200 bg-slate-50 px-2 font-mono text-[11px] leading-8 text-slate-400">{r || ' '}</div>
-          <div className="h-8 w-16 rounded-md border border-slate-200 bg-slate-50" />
-        </div>
-      ))}
-    </div>
-  );
-}
+const journey = [
+  { icon: Sprout, stage: 'Idea', title: 'Prototype for free', items: ['PostgreSQL database with SQL editor', 'Email and Google login', 'Instant REST and GraphQL APIs'] },
+  { icon: Rocket, stage: 'Launch', title: 'Go live with real users', items: ['Phone OTP over SMS or WhatsApp', 'File uploads and image resizing', 'Row Level Security on every request'] },
+  { icon: TrendingUp, stage: 'Traction', title: 'Automate and engage', items: ['Realtime updates and presence', 'Cron jobs, queues and functions', 'Webhooks into Slack, n8n or your CRM'] },
+  { icon: Gauge, stage: 'Scale', title: 'Stay fast and safe', items: ['Verified backups and point-in-time restore', 'High-availability PostgreSQL with failover', 'Usage, logs and alerts in one dashboard'] },
+];
 
-function FunctionsArt() {
-  return (
-    <div className="relative h-44 px-6">
-      <div className="relative z-10 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 font-mono text-[11px] text-slate-600 shadow-sm">
-        <span className="text-slate-400">$</span> odb functions deploy
-      </div>
-      <svg className="absolute -bottom-10 left-0 h-48 w-full text-slate-200" viewBox="0 0 200 160" fill="none">
-        <circle cx="100" cy="120" r="95" stroke="currentColor" />
-        {[20, 45, 70].map((rx) => <ellipse key={rx} cx="100" cy="120" rx={rx} ry="95" stroke="currentColor" />)}
-        {[40, 80, 120].map((y) => <line key={y} x1="10" y1={y + 20} x2="190" y2={y + 20} stroke="currentColor" />)}
-        <path d="M60 95 L110 70 L150 110" stroke="#3b82f6" strokeWidth="1.5" />
-        {[[60, 95], [110, 70], [150, 110]].map(([x, y]) => <circle key={x} cx={x} cy={y} r="3" fill="#3b82f6" />)}
-      </svg>
-    </div>
-  );
-}
+const savings = [
+  { icon: Moon, title: 'A free plan that never sleeps', body: 'Free projects stay online even when traffic is quiet, so your demo works when the investor clicks the link.' },
+  { icon: MessageSquareText, title: 'No markup on SMS and email', body: 'Connect your own MSG91, Twilio or Gmail account and pay them directly at their rates.' },
+  { icon: Receipt, title: 'GST-ready invoices', body: 'Tax invoices with your GSTIN and the CGST, SGST and IGST breakdown, ready for input tax credit.' },
+  { icon: BadgeIndianRupee, title: 'Pay the Indian way', body: 'UPI, cards and netbanking through Razorpay payment links. No international card needed.' },
+  { icon: ShieldCheck, title: 'Never locked in', body: 'It is standard PostgreSQL. Export everything with pg_dump whenever you want and take it anywhere.' },
+  { icon: Zap, title: 'One bill, not ten tools', body: 'Database, auth, storage, realtime, functions and backups in one place instead of separate subscriptions.' },
+];
 
-function StorageArt() {
-  const icons = [ImageIcon, ImageIcon, ImageIcon, FileText, FileText, FileText, Film, Film, Film];
-  return (
-    <div className="grid grid-cols-3 gap-2 px-6 pb-6">
-      {icons.map((I, i) => (
-        <div key={i} className="flex h-10 items-center justify-center rounded-md border border-slate-200 bg-slate-50 transition group-hover:border-blue-200">
-          <I className="h-4 w-4 text-slate-400" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function RealtimeArt() {
-  return (
-    <div className="relative h-40">
-      <div className="absolute left-10 top-6 flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
-        <span className="h-1.5 w-1.5 rounded-full bg-slate-400" /><span className="h-1.5 w-1.5 rounded-full bg-slate-400" /><span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-      </div>
-      <MousePointer2 className="absolute left-8 top-16 h-6 w-6 fill-white text-slate-400" />
-      <MousePointer2 className="absolute bottom-6 right-12 h-5 w-5 fill-blue-100 text-blue-500 transition group-hover:translate-x-2" />
-      <span className="absolute bottom-1 right-4 rounded bg-blue-500 px-1.5 py-0.5 text-[10px] font-medium text-white">Priya</span>
-    </div>
-  );
-}
-
-function VectorArt() {
-  return (
-    <div className="relative h-40 px-6">
-      <svg className="absolute right-6 top-0 h-28 w-28 text-slate-300" viewBox="0 0 100 100" fill="none">
-        <path d="M50 10 L88 30 L88 72 L50 92 L12 72 L12 30 Z" stroke="currentColor" />
-        <path d="M12 30 L50 50 L88 30 M50 50 L50 92" stroke="currentColor" />
-        {[[50, 10], [88, 30], [12, 30], [50, 50], [50, 92], [88, 72], [12, 72]].map(([x, y]) => (
-          <circle key={`${x}-${y}`} cx={x} cy={y} r="2.5" className="fill-blue-500" />
-        ))}
-      </svg>
-      <div className="absolute bottom-5 left-6 space-y-1.5 text-xs text-slate-500">
-        <div className="flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5" /> pgvector</div>
-        <div className="flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5" /> OpenAI &amp; Hugging Face embeddings</div>
-      </div>
-    </div>
-  );
-}
-
-function ApiArt() {
-  const tables = ['properties', 'localities', 'blog_posts', 'users', 'leads'];
-  return (
-    <div className="space-y-1.5 px-6 pb-6">
-      {tables.map((t) => (
-        <div key={t} className="flex items-center gap-2 text-[11px]">
-          <span className="w-20 truncate rounded border border-slate-200 bg-slate-50 px-1.5 py-1 font-mono text-slate-500">{t}</span>
-          <span className="h-px flex-1 bg-slate-200" />
-          <span className="truncate rounded-full border border-slate-200 px-2 py-1 font-mono text-slate-500 transition group-hover:border-blue-200 group-hover:text-blue-600">GET /{t}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
+const builtins = [
+  { icon: Database, label: 'PostgreSQL' }, { icon: KeyRound, label: 'Auth & MFA' }, { icon: Code2, label: 'REST & GraphQL' },
+  { icon: CloudUpload, label: 'Storage' }, { icon: Radio, label: 'Realtime' }, { icon: Boxes, label: 'Functions' },
+  { icon: Clock, label: 'Cron & queues' }, { icon: FileText, label: 'Backups & PITR' },
+];
 
 /* ── Page ───────────────────────────────────────────────────────────────── */
-
-const navLinks = [
-  { label: 'Product', href: '#product' },
-  { label: 'Developers', href: '#developers' },
-  { label: 'Docs', href: '/api/docs' },
-];
 
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-white text-slate-900 antialiased">
       {/* Nav */}
-      <header className="sticky top-0 z-30 border-b border-slate-100 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-          <div className="flex items-center gap-8">
-            <Link href="/" className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-600"><Database className="h-3.5 w-3.5 text-white" /></span>
-              <span className="font-semibold tracking-tight">AapStack</span>
-            </Link>
-            <nav className="hidden items-center gap-6 text-sm text-slate-600 md:flex">
-              {navLinks.map((l) => <a key={l.label} href={l.href} className="hover:text-slate-900">{l.label}</a>)}
-            </nav>
-          </div>
+      <header className="absolute inset-x-0 top-0 z-30">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
+          <Link href="/" className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 shadow-lg shadow-blue-500/30"><Database className="h-4 w-4 text-white" /></span>
+            <span className="text-lg font-semibold tracking-tight text-white">AapStack</span>
+          </Link>
+          <nav className="hidden items-center gap-7 text-sm text-slate-300 md:flex">
+            <a href="#integrations" className="hover:text-white">Integrations</a>
+            <a href="#journey" className="hover:text-white">For startups</a>
+            <a href="#pricing" className="hover:text-white">Pricing</a>
+            <a href="/api/docs" className="hover:text-white">Docs</a>
+          </nav>
           <div className="flex items-center gap-2">
-            <Link href="/login" className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-300">Sign in</Link>
-            <Link href="/login?mode=signup" className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500">Start your project</Link>
+            <Link href="/login" className="px-3 py-2 text-sm text-slate-200 hover:text-white">Sign in</Link>
+            <Link href="/login?mode=signup" className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-blue-50">Start free</Link>
           </div>
         </div>
       </header>
 
       {/* Hero */}
-      <section className="mx-auto max-w-6xl px-4 pb-14 pt-20 sm:pt-28">
-        <div className="grid gap-8 md:grid-cols-[1.6fr_1fr] md:items-end">
-          <h1 className="text-4xl font-medium leading-[1.1] tracking-tight sm:text-5xl xl:text-[3.5rem]">
-            Ship your backend today
-            <br />
-            <span className="text-blue-600">Grow without limits</span>
-          </h1>
-          <p className="max-w-md text-base leading-relaxed text-slate-500 md:pb-2">
-            Start your project with a PostgreSQL database. Add authentication, instant APIs, functions,
-            realtime, file storage and vector embeddings, hosted in Mumbai and compatible with supabase-js.
-          </p>
+      <section className="relative overflow-hidden bg-slate-950 pb-20 pt-32 text-white sm:pt-36">
+        <div className="pointer-events-none absolute -left-40 -top-40 h-[32rem] w-[32rem] rounded-full bg-blue-600/30 blur-3xl" aria-hidden="true" />
+        <div className="pointer-events-none absolute -right-32 top-20 h-[28rem] w-[28rem] rounded-full bg-cyan-500/20 blur-3xl" aria-hidden="true" />
+        <div className="relative mx-auto grid max-w-6xl gap-14 px-4 lg:grid-cols-[1.1fr_1fr] lg:items-center">
+          <div className="min-w-0">
+            <p className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-slate-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Built for Indian startups · Hosted in Mumbai
+            </p>
+            <h1 className="mt-6 text-4xl font-bold leading-[1.08] tracking-tight sm:text-6xl">
+              Your startup&apos;s backend,{' '}
+              <span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">ready before lunch.</span>
+            </h1>
+            <p className="mt-6 max-w-xl text-lg leading-relaxed text-slate-300">
+              Database, phone OTP over SMS and WhatsApp, email through Gmail, social logins, instant APIs and file storage,
+              already connected to each other. Spend your runway on customers, not on wiring up services.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link href="/login?mode=signup" className="inline-flex items-center gap-2 rounded-full bg-blue-500 px-6 py-3 font-semibold text-white shadow-lg shadow-blue-500/30 hover:bg-blue-400">
+                Start free, no card needed <ArrowRight className="h-4 w-4" />
+              </Link>
+              <a href="#integrations" className="rounded-full border border-white/20 px-6 py-3 font-semibold text-white hover:border-white/40">
+                See integrations
+              </a>
+            </div>
+          </div>
+
+          {/* Live signup flow */}
+          <div className="relative min-w-0">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-2xl backdrop-blur">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold">One signup, five integrations</p>
+                <span className="flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> live
+                </span>
+              </div>
+              <ol className="mt-4 space-y-2.5">
+                {flow.map(({ icon: Icon, label, via, ms }, i) => (
+                  <li key={label} className="flex items-center gap-3 rounded-xl border border-white/10 bg-slate-900/60 px-3.5 py-3">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-blue-300"><Icon className="h-4 w-4" /></span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-slate-100">{label}</p>
+                      <p className="text-[11px] text-slate-400">{i + 1}. via {via}</p>
+                    </div>
+                    <span className="shrink-0 font-mono text-[11px] text-slate-500">{ms}</span>
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
         </div>
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Link href="/login?mode=signup" className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500">
-            Start your project <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-          <Link href="/dashboard" className="rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:border-slate-300">
-            Open dashboard
-          </Link>
+
+        {/* Stats */}
+        <div className="relative mx-auto mt-16 max-w-6xl px-4">
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 md:grid-cols-4">
+            {stats.map((s) => (
+              <div key={s.label} className="bg-slate-950 p-5">
+                <p className="text-2xl font-bold">{s.value}</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-400">{s.label}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* Bento grid */}
-      <section id="product" className="mx-auto max-w-6xl scroll-mt-20 px-4">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card icon={Database} title="PostgreSQL Database" className="sm:col-span-2 sm:min-h-[22rem]" art={<DatabaseArt />}>
-            <p>Every project is a full <span className={hl}>PostgreSQL database</span>, the world&apos;s most trusted relational database.</p>
-            <ul className="mt-6 space-y-1.5 text-xs text-slate-600 sm:mt-32">
-              {['100% portable: export with pg_dump any time', 'Built-in auth with Row Level Security', 'PostGIS, pgvector, pg_trgm and more'].map((t) => (
-                <li key={t} className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-blue-600" /> {t}</li>
-              ))}
-            </ul>
-          </Card>
-          <Card icon={KeyRound} title="Authentication" className="min-h-[22rem]" art={<AuthArt />}>
-            <p>Add <span className={hl}>sign-ups and logins</span> with email, phone, Google and GitHub, secured by Row Level Security.</p>
-          </Card>
-          <Card icon={Webhook} title="Functions" className="min-h-[22rem]" art={<FunctionsArt />}>
-            <p>Write custom code and <span className={hl}>run it on HTTP calls, queues or a schedule</span>, without managing servers.</p>
-          </Card>
-
-          <Card icon={HardDrive} title="Storage" className="min-h-[20rem]" art={<StorageArt />}>
-            <p>Store, organize and serve <span className={hl}>large files</span>, from images to videos, with on-the-fly resizing.</p>
-          </Card>
-          <Card icon={Radio} title="Realtime" className="min-h-[20rem]" art={<RealtimeArt />}>
-            <p>Build <span className={hl}>live, multiplayer experiences</span> with database changes, broadcast and presence.</p>
-          </Card>
-          <Card icon={Sparkles} title="Vector" className="min-h-[20rem]" art={<VectorArt />}>
-            <p>Store, index and search <span className={hl}>vector embeddings</span> from your favourite ML models.</p>
-          </Card>
-          <Card icon={Code2} title="Data APIs" className="min-h-[20rem]" art={<ApiArt />}>
-            <p>Instant, ready-to-use <span className={hl}>REST and GraphQL APIs</span> for every table.</p>
-          </Card>
-        </div>
-        <p className="mt-6 text-sm text-slate-900">
-          Use one or all. <span className="text-slate-500">Every product works on its own, and they all share one PostgreSQL database.</span>
+      {/* Integrations */}
+      <section id="integrations" className="mx-auto max-w-6xl scroll-mt-8 px-4 py-24">
+        <p className="text-sm font-semibold uppercase tracking-wider text-blue-600">Integrations</p>
+        <h2 className="mt-2 max-w-2xl text-3xl font-bold tracking-tight sm:text-4xl">Plug in the services your users already use</h2>
+        <p className="mt-4 max-w-2xl text-slate-600">
+          Most backends stop at the database. AapStack connects the messy parts too: SMS gateways, email, social logins and the tools your team works in.
         </p>
+        <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {integrations.map(({ icon: Icon, title, tone, items, body }) => (
+            <div key={title} className="flex flex-col rounded-2xl border border-slate-200 p-6 transition hover:-translate-y-0.5 hover:shadow-lg">
+              <span className={`flex h-11 w-11 items-center justify-center rounded-xl ${toneClasses[tone]}`}><Icon className="h-5 w-5" /></span>
+              <h3 className="mt-4 text-lg font-semibold">{title}</h3>
+              <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600">{body}</p>
+              <div className="mt-5 flex flex-wrap gap-1.5">
+                {items.map((it) => <span key={it} className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-700">{it}</span>)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Journey */}
+      <section id="journey" className="scroll-mt-8 bg-slate-50 py-24">
+        <div className="mx-auto max-w-6xl px-4">
+          <p className="text-sm font-semibold uppercase tracking-wider text-blue-600">For startups</p>
+          <h2 className="mt-2 max-w-2xl text-3xl font-bold tracking-tight sm:text-4xl">One backend from first idea to first million users</h2>
+          <div className="relative mt-14 grid gap-10 md:grid-cols-4 md:gap-6">
+            <div className="absolute left-0 right-0 top-6 hidden h-px bg-gradient-to-r from-blue-200 via-cyan-300 to-blue-200 md:block" aria-hidden="true" />
+            {journey.map(({ icon: Icon, stage, title, items }) => (
+              <div key={stage} className="relative">
+                <span className="relative flex h-12 w-12 items-center justify-center rounded-full border-4 border-slate-50 bg-blue-600 text-white"><Icon className="h-5 w-5" /></span>
+                <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-slate-500">{stage}</p>
+                <h3 className="mt-1 font-semibold">{title}</h3>
+                <ul className="mt-3 space-y-2">
+                  {items.map((it) => <li key={it} className="flex gap-2 text-sm text-slate-600"><Check className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" /> {it}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Savings */}
+      <section className="mx-auto max-w-6xl px-4 py-24">
+        <p className="text-sm font-semibold uppercase tracking-wider text-blue-600">Lower cost</p>
+        <h2 className="mt-2 max-w-2xl text-3xl font-bold tracking-tight sm:text-4xl">Spend on growth, not on infrastructure</h2>
+        <div className="mt-12 grid gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
+          {savings.map(({ icon: Icon, title, body }) => (
+            <div key={title} className="flex gap-4">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><Icon className="h-5 w-5" /></span>
+              <div>
+                <h3 className="font-semibold">{title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{body}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Pricing */}
+      <section id="pricing" className="scroll-mt-8 border-y border-slate-200 bg-slate-50 py-24">
+        <div className="mx-auto max-w-6xl px-4">
+          <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">Start free. Upgrade when you have traction.</h2>
+          <div className="mx-auto mt-12 grid max-w-4xl gap-6 md:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-white p-8">
+              <p className="font-semibold">Free</p>
+              <p className="mt-2 text-4xl font-bold">$0<span className="text-base font-normal text-slate-500"> / month</span></p>
+              <p className="mt-2 text-sm text-slate-500">For prototypes, hackathons and your first users.</p>
+              <ul className="mt-6 space-y-2.5 text-sm text-slate-700">
+                {['2 projects that never pause', '50,000 users per project', '500 MB database, 1 GB file storage', '50,000 API requests a day', '200 realtime connections'].map((t) => (
+                  <li key={t} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" /> {t}</li>
+                ))}
+              </ul>
+              <Link href="/login?mode=signup" className="mt-8 block rounded-full border border-slate-300 py-3 text-center font-semibold hover:border-slate-400">Start free</Link>
+            </div>
+            <div className="relative rounded-2xl border-2 border-blue-500 bg-white p-8 shadow-xl shadow-blue-500/10">
+              <span className="absolute -top-3 right-6 rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">For growing startups</span>
+              <p className="font-semibold">Pro</p>
+              <p className="mt-2 text-4xl font-bold">$25<span className="text-base font-normal text-slate-500"> / month</span></p>
+              <p className="mt-2 text-sm text-slate-500">Billed with a GST invoice. Pay by UPI, card or netbanking.</p>
+              <ul className="mt-6 space-y-2.5 text-sm text-slate-700">
+                {['10 projects', '8 GB database, 100 GB file storage', '5 million API requests a month', '2 million function calls a month', '1,000 realtime connections'].map((t) => (
+                  <li key={t} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" /> {t}</li>
+                ))}
+              </ul>
+              <Link href="/login?mode=signup" className="mt-8 block rounded-full bg-blue-600 py-3 text-center font-semibold text-white hover:bg-blue-500">Get started</Link>
+            </div>
+          </div>
+          <p className="mt-6 text-center text-sm text-slate-500">Need more? The Team plan has unlimited projects and higher limits.</p>
+        </div>
       </section>
 
       {/* Developers */}
-      <section id="developers" className="mx-auto mt-24 max-w-6xl scroll-mt-20 px-4">
-        <div className="grid gap-10 rounded-2xl border border-slate-200 bg-slate-50 p-6 sm:p-10 lg:grid-cols-2 lg:items-center">
+      <section className="mx-auto max-w-6xl px-4 py-24">
+        <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
           <div className="min-w-0">
-            <h2 className="text-3xl font-medium tracking-tight">Already on Supabase?<br /><span className="text-slate-500">Switch in two lines.</span></h2>
-            <p className="mt-4 max-w-md text-sm leading-relaxed text-slate-500">
-              AapStack speaks the same API as Supabase. Keep using supabase-js, point it at your AapStack project
-              and import your existing database, users and files.
+            <p className="text-sm font-semibold uppercase tracking-wider text-blue-600">For developers</p>
+            <h2 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Phone login in a few lines of code</h2>
+            <p className="mt-4 text-slate-600">
+              Use the supabase-js client you already know, or call the REST and GraphQL APIs from any language.
+              Coming from Supabase? Point your app at AapStack and import your existing data.
             </p>
-            <ul className="mt-6 space-y-2 text-sm text-slate-700">
-              {['Database in Mumbai, closer to your users in India', 'Projects never pause for inactivity', 'Full SQL access, CLI and MCP server for AI tools'].map((t) => (
-                <li key={t} className="flex items-center gap-2"><Check className="h-4 w-4 text-blue-600" /> {t}</li>
+            <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {builtins.map(({ icon: Icon, label }) => (
+                <div key={label} className="flex flex-col items-center gap-2 rounded-xl border border-slate-200 p-3 text-center">
+                  <Icon className="h-5 w-5 text-blue-600" />
+                  <span className="text-xs font-medium text-slate-700">{label}</span>
+                </div>
               ))}
-            </ul>
-          </div>
-          <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-950 shadow-lg">
-            <div className="flex items-center gap-1.5 border-b border-slate-800 px-4 py-2.5">
-              <span className="h-2.5 w-2.5 rounded-full bg-slate-700" /><span className="h-2.5 w-2.5 rounded-full bg-slate-700" /><span className="h-2.5 w-2.5 rounded-full bg-slate-700" />
-              <span className="ml-2 text-[11px] text-slate-500">app.ts</span>
             </div>
-            <pre className="overflow-x-auto p-5 text-[13px] leading-relaxed text-slate-300"><code>{`import { createClient } from '@supabase/supabase-js'
+          </div>
+          <div className="min-w-0 overflow-hidden rounded-2xl bg-slate-950 shadow-2xl">
+            <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-3">
+              <span className="h-3 w-3 rounded-full bg-rose-400/80" /><span className="h-3 w-3 rounded-full bg-amber-400/80" /><span className="h-3 w-3 rounded-full bg-emerald-400/80" />
+              <span className="ml-2 text-xs text-slate-500">login.ts</span>
+            </div>
+            <pre className="overflow-x-auto p-6 text-[13px] leading-relaxed text-slate-300"><code>{`import { createClient } from '@supabase/supabase-js'
+const app = createClient('https://aapstack.tech/p/<project-id>', '<anon-key>')
 
-const db = createClient(
-  'https://aapstack.tech/p/<project-id>',
-  '<anon-key>'
-)
+// 1. Send an OTP by SMS
+await app.auth.signInWithOtp({ phone: '+919876543210' })
 
-const { data } = await db
-  .from('properties')
-  .select('id, title, price')
-  .eq('status', 'approved')`}</code></pre>
+// 2. Verify the code the user typed
+await app.auth.verifyOtp({ phone: '+919876543210', token: '482913', type: 'sms' })
+
+// 3. Read their data, protected by Row Level Security
+const { data } = await app.from('orders').select('*')`}</code></pre>
           </div>
         </div>
       </section>
 
       {/* CTA */}
-      <section className="mx-auto max-w-6xl px-4 py-24 text-center">
-        <h2 className="text-3xl font-medium tracking-tight sm:text-4xl">Build on AapStack <span className="text-blue-600">today</span></h2>
-        <div className="mt-6 flex justify-center gap-3">
-          <Link href="/login?mode=signup" className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500">Start your project</Link>
-          <Link href="/login" className="rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:border-slate-300">Sign in</Link>
+      <section className="px-4 pb-24">
+        <div className="relative mx-auto max-w-6xl overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 to-cyan-500 px-6 py-14 text-center text-white sm:px-12">
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Build your MVP this weekend</h2>
+          <p className="mx-auto mt-3 max-w-xl text-blue-50">Create a free project, connect your SMS and email providers, and ship your first feature today.</p>
+          <Link href="/login?mode=signup" className="mt-8 inline-flex items-center gap-2 rounded-full bg-white px-7 py-3 font-semibold text-blue-700 hover:bg-blue-50">
+            Create your free project <ArrowRight className="h-4 w-4" />
+          </Link>
         </div>
       </section>
 
-      <footer className="border-t border-slate-100">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-8 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-          <span className="flex items-center gap-2"><Database className="h-3.5 w-3.5 text-blue-600" /> AapStack · PostgreSQL development platform · Mumbai, India</span>
+      <footer className="border-t border-slate-200">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-8 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <span className="flex items-center gap-2"><Database className="h-4 w-4 text-blue-600" /> AapStack · Backend platform for startups · Mumbai, India</span>
           <span className="flex gap-5">
             <Link href="/login" className="hover:text-slate-900">Sign in</Link>
             <Link href="/dashboard" className="hover:text-slate-900">Dashboard</Link>
