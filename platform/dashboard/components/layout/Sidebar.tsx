@@ -63,7 +63,7 @@ export function Sidebar() {
     <aside className="flex w-60 shrink-0 flex-col border-r border-slate-800 bg-slate-900" data-testid="sidebar">
       <Link href="/dashboard" className="flex h-14 items-center gap-2.5 border-b border-slate-800 px-4">
         <div className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-500"><Database className="h-4 w-4 text-white" /></div>
-        <span className="text-sm font-bold tracking-tight text-white">OwnDatabase</span>
+        <span className="text-sm font-bold tracking-tight text-white">AapStack</span>
       </Link>
       <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-3">
         {sections.map((s, i) => (

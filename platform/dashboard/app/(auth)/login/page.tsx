@@ -11,7 +11,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center justify-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500"><Database className="h-5 w-5 text-white" /></div>
-          <span className="text-xl font-bold text-white">OwnDatabase</span>
+          <span className="text-xl font-bold text-white">AapStack</span>
         </div>
         <div className="rounded-lg border border-slate-700 bg-white p-6 shadow-xl">
           <Suspense><LoginForm /></Suspense>

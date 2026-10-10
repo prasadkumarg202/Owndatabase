@@ -3,7 +3,7 @@ import './globals.css';
 import { Providers } from './providers';
 
 export const metadata: Metadata = {
-  title: { default: 'OwnDatabase', template: '%s | OwnDatabase' },
+  title: { default: 'AapStack', template: '%s | AapStack' },
   description: 'Self-hosted PostgreSQL-first Backend-as-a-Service platform',
   robots: { index: false, follow: false },
 };
