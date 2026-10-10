@@ -89,7 +89,9 @@ def test_sql_editor_is_confined_to_project(project):
         "select * from control_plane.platform_users",
         "reset role; select * from control_plane.api_keys",
         "set role postgres",
-        "select * from auth.users",
+        # auth.users is readable since migration 030, but only the project's own rows
+        # (covered by test_tenant_isolation.py::test_project_reads_only_its_own_users)
+        "update auth.users set role = 'admin'",
         "create extension if not exists hstore",
     ]:
         r = project.owner.post(f"/projects/{project.id}/execute", json={"query": q})
