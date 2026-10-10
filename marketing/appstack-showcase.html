@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AppStack — Console Showcase</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ───────────────────────── Tokens ───────────────────────── */
+:root{
+  --bg:#ffffff; --surface:#ffffff; --surface-2:#f6f7f9; --surface-3:#eef0f3;
+  --border:#e3e6ea; --border-strong:#cfd4da;
+  --text:#0d1117; --text-2:#5b6573; --text-3:#8a94a3;
+  --brand:#5b5bf7; --brand-soft:#ecebff; --brand-ink:#3b3bd6;
+  --ok:#16a34a; --ok-soft:#e7f7ec; --warn:#b45309;
+  --code-bg:#0f1220; --code-text:#e6e8ef; --code-dim:#6b7290;
+  --k:#c792ea; --f:#82aaff; --s:#c3e88d; --n:#f78c6c; --c:#676e95;
+  --shadow:0 1px 2px rgba(16,24,40,.04),0 12px 32px -12px rgba(16,24,40,.14);
+  --radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0b0d12; --surface:#11141b; --surface-2:#161a23; --surface-3:#1d222d;
+    --border:#262c38; --border-strong:#353d4c;
+    --text:#eef1f6; --text-2:#a3adbd; --text-3:#6f7a8c;
+    --brand:#7c7cff; --brand-soft:#23224a; --brand-ink:#a9a9ff;
+    --ok:#22c55e; --ok-soft:#14301f;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 16px 40px -16px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b0d12; --surface:#11141b; --surface-2:#161a23; --surface-3:#1d222d;
+  --border:#262c38; --border-strong:#353d4c;
+  --text:#eef1f6; --text-2:#a3adbd; --text-3:#6f7a8c;
+  --brand:#7c7cff; --brand-soft:#23224a; --brand-ink:#a9a9ff;
+  --ok:#22c55e; --ok-soft:#14301f;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 16px 40px -16px rgba(0,0,0,.6);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* ───────────────────────── Section ───────────────────────── */
+.as-section{max-width:1180px;margin:0 auto;padding:56px 24px 72px}
+.as-eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--brand-ink);background:var(--brand-soft);padding:6px 12px;border-radius:999px;margin-bottom:18px}
+.as-title{font-size:clamp(24px,3.2vw,38px);line-height:1.08;letter-spacing:-.025em;font-weight:700}
+.as-title span{display:block;color:var(--text-3)}
+.as-sub{margin-top:12px;max-width:560px;color:var(--text-2);font-size:15px;line-height:1.55}
+
+.as-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:28px 0 20px}
+.as-tab{position:relative;overflow:hidden;border:1px solid var(--border);background:var(--surface);color:var(--text-2);font:500 13.5px Inter,sans-serif;padding:9px 18px;border-radius:999px;cursor:pointer;transition:color .2s,border-color .2s,background .2s}
+.as-tab:hover{color:var(--text);border-color:var(--border-strong)}
+.as-tab[aria-selected="true"]{color:var(--text);border-color:var(--text)}
+.as-tab .bar{position:absolute;left:0;bottom:0;height:2px;width:0;background:var(--brand)}
+.as-tab:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
+/* ───────────────────────── Window ───────────────────────── */
+.as-window{position:relative;border:1px solid var(--border);border-radius:20px;background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.as-chrome{display:flex;align-items:center;gap:14px;height:44px;padding:0 16px;border-bottom:1px solid var(--border);background:var(--surface-2)}
+.as-dots{display:flex;gap:7px}
+.as-dots i{width:11px;height:11px;border-radius:50%;background:var(--border-strong);display:block}
+.as-url{flex:1;max-width:460px;margin:0 auto;height:26px;border:1px solid var(--border);border-radius:8px;background:var(--surface);display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12px;color:var(--text-3);white-space:nowrap;overflow:hidden}
+.as-url b{color:var(--text-2);font-weight:500}
+
+.as-app{display:grid;grid-template-columns:196px 1fr;height:520px;font-size:13px}
+.as-side{border-right:1px solid var(--border);padding:14px 10px;display:flex;flex-direction:column;gap:2px;background:var(--surface)}
+.as-brand{display:flex;align-items:center;gap:9px;padding:4px 8px 14px;font-weight:700;font-size:15px;letter-spacing:-.01em}
+.as-logo{width:24px;height:24px;border-radius:7px;background:linear-gradient(135deg,var(--brand),#a855f7);display:grid;place-items:center}
+.as-logo svg{width:14px;height:14px}
+.as-proj{margin:0 4px 12px;border:1px solid var(--border);border-radius:9px;padding:7px 10px;font-size:12.5px;color:var(--text-2);display:flex;justify-content:space-between;align-items:center}
+.as-proj b{color:var(--text);font-weight:600}
+.as-nav{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:12.5px;color:var(--text-2);transition:background .25s,color .25s}
+.as-nav svg{width:16px;height:16px;flex:none}
+.as-nav.on{background:var(--surface-3);color:var(--text);font-weight:500}
+.as-side .grow{flex:1}
+.as-plan{font-size:12px;color:var(--text-3);padding:8px 10px;border-top:1px solid var(--border);margin-top:8px}
+
+.as-main{position:relative;overflow:hidden;background:var(--surface-2)}
+.scene{position:absolute;inset:0;padding:22px 26px;opacity:0;visibility:hidden;transition:opacity .35s ease}
+.scene.on{opacity:1;visibility:visible}
+
+/* generic UI bits */
+.h{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.h h3{font-size:15px;font-weight:600;letter-spacing:-.01em}
+.h p{font-size:11.5px;color:var(--text-3);margin-top:3px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)}
+.btn{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);font:500 12.5px Inter,sans-serif;color:var(--text);transition:transform .12s,background .2s,box-shadow .2s}
+.btn svg{width:14px;height:14px}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn.press{transform:scale(.95);box-shadow:0 0 0 4px var(--brand-soft)}
+.field{height:34px;border:1px solid var(--border);border-radius:8px;background:var(--surface);display:flex;align-items:center;padding:0 10px;font-size:12.5px;gap:8px;transition:border-color .2s,box-shadow .2s;min-width:0}
+.field.focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+.field .ph{color:var(--text-3)}
+.lbl{font-size:12px;color:var(--text-2);font-weight:500;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.caret{display:inline-block;width:1.5px;height:1.05em;background:currentColor;vertical-align:-2px;margin-left:1px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.toggle{width:36px;height:20px;border-radius:999px;background:var(--border-strong);position:relative;flex:none;transition:background .25s}
+.toggle::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .25s}
+.toggle.on{background:var(--ok)}
+.toggle.on::after{transform:translateX(16px)}
+.chk{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--border-strong);display:grid;place-items:center;transition:all .2s}
+.chk.on{background:var(--ok);border-color:var(--ok)}
+.chk svg{width:12px;height:12px;opacity:0;transition:opacity .2s}
+.chk.on svg{opacity:1}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:3px 9px;border-radius:999px;border:1px solid var(--border);color:var(--text-2);background:var(--surface)}
+.pill.ok{color:var(--ok);background:var(--ok-soft);border-color:transparent}
+.pop{animation:pop .35s cubic-bezier(.2,.9,.3,1.3) both}
+@keyframes pop{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
+.hide{display:none !important}
+
+/* toast */
+.toast{position:absolute;right:22px;bottom:20px;display:flex;align-items:center;gap:9px;background:var(--text);color:var(--bg);font-size:13px;font-weight:500;padding:10px 14px;border-radius:10px;box-shadow:var(--shadow);opacity:0;transform:translateY(10px);transition:all .3s;z-index:5}
+.toast.on{opacity:1;transform:none}
+.toast i{width:18px;height:18px;border-radius:50%;background:var(--ok);display:grid;place-items:center}
+.toast i svg{width:11px;height:11px}
+
+/* fake cursor */
+.cursor{position:absolute;left:0;top:0;width:22px;height:22px;z-index:20;pointer-events:none;transition:transform .7s cubic-bezier(.45,.05,.25,1),opacity .3s;opacity:0;filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))}
+.cursor.on{opacity:1}
+.cursor.click::after{content:"";position:absolute;left:-9px;top:-9px;width:22px;height:22px;border-radius:50%;border:2px solid var(--brand);animation:ripple .45s ease-out}
+@keyframes ripple{from{transform:scale(.3);opacity:1}to{transform:scale(1.6);opacity:0}}
+
+/* ───────── Scene 1: Table editor ───────── */
+.te{display:grid;grid-template-columns:170px 1fr;gap:16px;height:100%}
+.te-list{padding:12px;display:flex;flex-direction:column;gap:3px;height:100%}
+.te-list .ttl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);font-weight:600;margin:4px 6px 8px}
+.te-item{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-2);padding:7px 8px;border-radius:7px}
+.te-item svg{width:14px;height:14px;color:var(--text-3)}
+.te-item.on{background:var(--brand-soft);color:var(--brand-ink);font-weight:500}
+.te-item.on svg{color:var(--brand-ink)}
+.te-stage{position:relative;min-width:0}
+.grid{overflow:hidden}
+.grid table{width:100%;border-collapse:collapse;font-size:12.5px}
+.grid th{text-align:left;font-weight:500;color:var(--text-2);background:var(--surface-2);border-bottom:1px solid var(--border);padding:9px 12px;white-space:nowrap}
+.grid th small{color:var(--text-3);font-weight:400;margin-left:6px;font-size:11px}
+.grid td{border-bottom:1px solid var(--border);padding:9px 12px;white-space:nowrap;color:var(--text)}
+.grid td.dim{color:var(--text-3)}
+.grid tr.new td{animation:rowin .45s ease both}
+@keyframes rowin{from{background:var(--brand-soft);opacity:0;transform:translateX(-6px)}to{background:transparent;opacity:1;transform:none}}
+.drawer{position:absolute;inset:0;padding:18px 20px;transform:translateX(105%);transition:transform .5s cubic-bezier(.2,.8,.2,1);z-index:3;display:flex;flex-direction:column}
+.drawer.on{transform:none}
+.cols{margin-top:14px}
+.cols .hd,.cols .row{display:grid;grid-template-columns:20px minmax(0,1.3fr) minmax(0,1.1fr) minmax(0,1fr) 56px;gap:10px;align-items:center}
+.cols .hd{font-size:12px;color:var(--text-2);font-weight:500;padding:0 6px 8px}
+.cols .row{padding:6px;border-radius:10px;margin-bottom:6px}
+.cols .row.pk{background:var(--surface-2)}
+.cols .grip{color:var(--text-3)}
+.cols .grip svg{width:14px;height:14px}
+.typ{display:flex;align-items:center;gap:8px}
+.typ em{font-style:normal;color:var(--text-3);font-size:12px;width:16px;text-align:center}
+.drawer .foot{margin-top:auto;display:flex;justify-content:space-between;align-items:center;padding-top:12px;border-top:1px solid var(--border)}
+.rls{display:flex;align-items:center;gap:10px;font-size:13px}
+.rls small{display:block;color:var(--text-3);font-size:11.5px}
+
+/* ───────── Scene 2: SQL ───────── */
+.sql{display:grid;grid-template-rows:auto 1fr auto;height:100%;gap:14px}
+.editor{background:var(--code-bg);border-radius:var(--radius);border:1px solid rgba(255,255,255,.06);overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.ed-tabs{display:flex;align-items:center;height:38px;border-bottom:1px solid rgba(255,255,255,.07);padding:0 6px 0 0}
+.ed-tab{height:100%;display:flex;align-items:center;gap:8px;padding:0 14px;font-size:12.5px;color:#c9cde0;border-right:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.03)}
+.ed-tab .d{width:7px;height:7px;border-radius:50%;background:var(--brand)}
+.ed-tabs .sp{flex:1}
+.ed-hint{font-size:11.5px;color:var(--code-dim);margin-right:10px}
+.code{flex:1;padding:12px 0;font-size:12.5px;line-height:1.7;color:var(--code-text);overflow:hidden}
+.code .ln{display:flex}
+.code .ln b{width:44px;text-align:right;padding-right:16px;color:var(--code-dim);font-weight:400;user-select:none;flex:none}
+.tk-k{color:var(--k)} .tk-f{color:var(--f)} .tk-s{color:var(--s)} .tk-n{color:var(--n)} .tk-c{color:var(--c);font-style:italic} .tk-p{color:var(--code-text)}
+.results{overflow:hidden;opacity:0;transform:translateY(8px);transition:all .4s}
+.results.on{opacity:1;transform:none}
+.res-h{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;color:var(--text-2)}
+.res-h b{color:var(--text);font-weight:600}
+.bar-cell{display:flex;align-items:center;gap:10px}
+.bar-cell span{display:block;height:6px;border-radius:3px;background:var(--brand);opacity:.75;width:0;transition:width .9s cubic-bezier(.2,.8,.2,1)}
+
+/* ───────── Scene 3: Auth ───────── */
+.auth{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:18px;height:100%}
+.prov{padding:6px 0}
+.prov-row{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.prov-row:last-child{border-bottom:0}
+.prov-ic{width:34px;height:34px;border-radius:9px;border:1px solid var(--border);display:grid;place-items:center;background:var(--surface-2);flex:none}
+.prov-ic svg{width:17px;height:17px;color:var(--text-2)}
+.prov-row .t{flex:1;min-width:0}
+.prov-row .t b{display:block;font-size:13px;font-weight:600}
+.prov-row .t small{font-size:11.5px;color:var(--text-3)}
+.prov-more{overflow:hidden;max-height:0;transition:max-height .5s ease, padding .5s ease;padding:0 16px;background:var(--surface-2);border-bottom:1px solid var(--border)}
+.prov-more.on{max-height:150px;padding:12px 16px}
+.prov .prov-more:last-child{border-bottom:0}
+.prov-more .g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.device{border-radius:24px;border:1px solid var(--border);background:var(--surface);padding:20px 18px;position:relative;overflow:hidden;display:flex;flex-direction:column;gap:12px}
+.device .app-n{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px}
+.device .app-n i{width:22px;height:22px;border-radius:6px;background:#f97316;display:block}
+.device h4{font-size:16px;letter-spacing:-.01em;margin-top:4px}
+.device .muted{font-size:12.5px;color:var(--text-3);margin-top:-6px}
+.oauth{justify-content:center;font-weight:500}
+.or{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--border)}
+.wbtn{width:100%;justify-content:center;height:38px}
+.otp{display:grid;grid-template-columns:repeat(6,1fr);gap:7px}
+.otp div{height:38px;border:1px solid var(--border);border-radius:9px;display:grid;place-items:center;font:600 16px "JetBrains Mono",monospace;transition:border-color .2s,background .2s}
+.otp div.f{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-ink)}
+.mail{position:absolute;left:12px;right:12px;top:-90px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:11px 13px;display:flex;gap:11px;box-shadow:var(--shadow);transition:top .55s cubic-bezier(.2,.9,.3,1.2);z-index:4}
+.mail.on{top:12px}
+.mail .mi{width:32px;height:32px;border-radius:9px;background:#ea4335;display:grid;place-items:center;flex:none}
+.mail.sms .mi{background:#22c55e}
+.mail .mi svg{width:17px;height:17px;color:#fff}
+.mail b{font-size:12.5px;display:block}
+.mail small{font-size:12px;color:var(--text-2);display:block;line-height:1.4}
+.mail small strong{font-family:"JetBrains Mono",monospace;color:var(--text)}
+.signed{display:flex;align-items:center;gap:10px;padding:12px;border-radius:12px;background:var(--ok-soft);color:var(--ok);font-size:13px;font-weight:500}
+.signed i{width:24px;height:24px;border-radius:50%;background:var(--ok);display:grid;place-items:center;flex:none}
+.signed i svg{width:13px;height:13px;color:#fff}
+
+/* ───────────────────────── Responsive ───────────────────────── */
+@media (max-width: 980px){
+  .as-app{grid-template-columns:64px 1fr}
+  .as-side .lab,.as-brand span,.as-proj,.as-plan{display:none}
+  .as-brand{justify-content:center;padding:4px 0 14px}
+  .as-nav{justify-content:center;padding:10px 0}
+}
+@media (max-width: 760px){
+  .as-section{padding:36px 16px 44px}
+  .as-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:20px 0 14px}
+  .as-tab{padding:8px 6px;font-size:12px;text-align:center}
+  .as-sub{font-size:14px}
+  .as-title{font-size:23px}
+  #teGrid.ord th:nth-child(2),#teGrid.ord td:nth-child(2){display:none}
+  .as-app{grid-template-columns:1fr;height:auto}
+  .as-side{display:none}
+  .as-main{height:600px}
+  .scene{padding:16px}
+  .te{grid-template-columns:1fr}
+  .te-list{display:none}
+  .auth{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr}
+  .code .ln b{width:30px;padding-right:10px}
+  .auth{gap:12px}
+  .auth .prov-more,.auth .xtra,.auth .h p{display:none !important}
+  .auth .h{margin-bottom:8px}
+  .prov-row{padding:10px 12px}
+  .conn .keys{gap:10px}
+  .cols .hd,.cols .row{grid-template-columns:0 minmax(0,1.3fr) minmax(0,1.1fr) 0 40px}
+  .cols .grip,.cols .defv,.cols .hd .defv{visibility:hidden}
+  .as-url{font-size:11px}
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important}
+}
+</style>
+</head>
+<body>
+
+<section class="as-section" id="appstack-showcase" aria-label="AppStack console showcase">
+  <div class="as-eyebrow">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    One console, your whole backend
+  </div>
+  <h2 class="as-title">From first table to signed&#8209;in users
+    <span>in a single sitting</span></h2>
+  <p class="as-sub">Let people sign in with a one-time code by SMS or email, shape your data in a visual editor, and query it with plain SQL — all from one console.</p>
+
+  <div class="as-tabs" role="tablist" aria-label="Showcase scenes">
+    <button class="as-tab" role="tab" aria-selected="true"  data-i="0">Phone OTP<span class="bar"></span></button>
+    <button class="as-tab" role="tab" aria-selected="false" data-i="1">Table Editor<span class="bar"></span></button>
+    <button class="as-tab" role="tab" aria-selected="false" data-i="2">SQL Editor<span class="bar"></span></button>
+    <button class="as-tab" role="tab" aria-selected="false" data-i="3">Email OTP &amp; Gmail<span class="bar"></span></button>
+  </div>
+
+  <div class="as-window">
+    <div class="as-chrome">
+      <div class="as-dots"><i></i><i></i><i></i></div>
+      <div class="as-url">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+        <span>app.aapstack.tech/project/<b>acme-store</b>/<b id="urlPath">tables</b></span>
+      </div>
+    </div>
+
+    <div class="as-app">
+      <!-- Sidebar -->
+      <aside class="as-side">
+        <div class="as-brand">
+          <div class="as-logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="m3 13 9 5 9-5"/></svg></div>
+          <span>AppStack</span>
+        </div>
+        <div class="as-proj"><span><b>acme-store</b></span><span>▾</span></div>
+        <div class="as-nav" data-nav="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg><span class="lab">Table Editor</span></div>
+        <div class="as-nav" data-nav="2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M13 6l-2 12"/></svg><span class="lab">SQL Editor</span></div>
+        <div class="as-nav" data-nav="0 3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span class="lab">Authentication</span></div>
+        <div class="as-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16v12H4z"/><path d="M8 7V5h8v2"/></svg><span class="lab">Storage</span></div>
+        <div class="as-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg><span class="lab">Realtime</span></div>
+        <div class="as-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17 10 11 4 5M12 19h8"/></svg><span class="lab">Functions</span></div>
+        <div class="grow"></div>
+        <div class="as-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 9.2-9.2M17 6l3 3M14 9l2 2"/></svg><span class="lab">API Keys</span></div>
+        <div class="as-plan">Self-hosted · eu-central</div>
+      </aside>
+
+      <!-- Main stage -->
+      <div class="as-main" id="stage">
+        <svg class="cursor" id="cursor" viewBox="0 0 24 24"><path d="M4 2.5v17.2l4.6-4.3 2.9 6.6 2.6-1.1-2.8-6.5H18L4 2.5z" fill="#0d1117" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        <div class="toast" id="toast"><i><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="m5 12 5 5 9-10"/></svg></i><span id="toastText"></span></div>
+
+        <!-- ═════ Scene 0: Phone OTP ═════ -->
+        <div class="scene" data-scene="0">
+          <div class="auth">
+            <div class="prov-card">
+              <div class="h"><div><h3>Phone sign-in</h3><p>One-time codes by SMS — no passwords to forget</p></div></div>
+              <div class="card prov">
+                <div class="prov-row">
+                  <div class="prov-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
+                  <div class="t"><b>Phone one-time code</b><small>A 6-digit code by SMS to the user's number</small></div>
+                  <div class="toggle" id="phT"></div>
+                </div>
+                <div class="prov-more" id="phMore">
+                  <div class="g2">
+                    <div><div class="lbl">SMS provider</div><div class="field" id="phProv"><span class="ph">Choose…</span></div></div>
+                    <div><div class="lbl">Sender ID</div><div class="field mono" id="phSender" style="font-size:12.5px"><span class="ph">ACMEST</span></div></div>
+                  </div>
+                </div>
+                <div class="prov-row xtra">
+                  <div class="prov-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+                  <div class="t"><b>Code expiry</b><small>Codes stop working after 5 minutes</small></div>
+                  <span class="pill">5 min</span>
+                </div>
+                <div class="prov-row xtra">
+                  <div class="prov-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3z"/></svg></div>
+                  <div class="t"><b>Abuse protection</b><small>Max 5 codes per number per hour</small></div>
+                  <span class="pill ok">On</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="device">
+              <div class="mail sms" id="phSms">
+                <div class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></div>
+                <div><b>Messages · AX-ACMEST</b><small><strong>730254</strong> is your Acme Store sign-in code. Valid for 5 min.</small></div>
+              </div>
+              <div class="app-n"><i></i>Acme Store</div>
+              <h4 id="phH">Sign in with your phone</h4>
+              <p class="muted" id="phP">We'll text you a code</p>
+              <div id="phForm">
+                <div class="lbl">Mobile number</div>
+                <div style="display:grid;grid-template-columns:72px 1fr;gap:8px;margin-bottom:12px">
+                  <div class="field" style="justify-content:center">🇮🇳 +91</div>
+                  <div class="field mono" id="phNum"><span class="ph">98765 43210</span></div>
+                </div>
+                <button class="btn primary wbtn" id="phSend">Send code</button>
+              </div>
+              <div id="phCode" class="hide">
+                <div class="lbl">Enter the 6-digit code</div>
+                <div class="otp" id="phOtp"><div></div><div></div><div></div><div></div><div></div><div></div></div>
+                <p class="muted" style="margin-top:10px">Resend in 0:42</p>
+              </div>
+              <div id="phDone" class="signed hide"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m5 12 5 5 9-10"/></svg></i>Signed in as +91 98765 43210</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═════ Scene 1: Table Editor ═════ -->
+        <div class="scene" data-scene="1">
+          <div class="te">
+            <div class="card te-list">
+              <div class="ttl">Tables · public</div>
+              <div class="te-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/></svg>customers</div>
+              <div class="te-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/></svg>products</div>
+              <div class="te-item hide" id="teOrders"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/></svg>orders</div>
+              <div style="margin-top:auto"><button class="btn primary" id="teNew" style="width:100%;justify-content:center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>New table</button></div>
+            </div>
+
+            <div class="te-stage">
+              <div class="card grid" id="teGrid" style="height:100%">
+                <div class="h" style="padding:14px 16px 0;margin-bottom:12px">
+                  <div><h3 id="teGridTitle">products</h3><p id="teGridSub">4 columns · RLS on</p></div>
+                  <span class="pill" id="teRls">RLS enabled</span>
+                </div>
+                <table>
+                  <thead id="teHead"><tr><th>id<small>int8</small></th><th>name<small>text</small></th><th>price<small>numeric</small></th><th>stock<small>int4</small></th></tr></thead>
+                  <tbody id="teBody">
+                    <tr><td>1</td><td>Linen shirt</td><td>1,499</td><td>42</td></tr>
+                    <tr><td>2</td><td>Canvas tote</td><td>699</td><td>118</td></tr>
+                    <tr><td>3</td><td>Clay mug</td><td>349</td><td>64</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="card drawer" id="teDrawer">
+                <div class="h" style="margin-bottom:10px"><div><h3>Create a table</h3><p>Columns, keys and access rules in one place</p></div></div>
+                <div class="lbl">Table name</div>
+                <div class="field" id="teName"><span class="ph">e.g. orders</span></div>
+                <div class="cols">
+                  <div class="hd"><span></span><span>Column</span><span>Type</span><span class="defv">Default</span><span>Key</span></div>
+                  <div id="teCols"></div>
+                </div>
+                <div class="foot">
+                  <div class="rls"><div class="toggle" id="teRlsT"></div><div>Row level security<small>Only rows your policies allow are visible</small></div></div>
+                  <button class="btn primary" id="teSave">Create table</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═════ Scene 2: SQL Editor ═════ -->
+        <div class="scene" data-scene="2">
+          <div class="sql">
+            <div class="h" style="margin:0">
+              <div><h3>Revenue by customer</h3><p>Saved query · runs with your project's permissions</p></div>
+              <button class="btn primary" id="sqlRun"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg>Run <span class="mono" style="opacity:.7;font-size:11px">⌘↵</span></button>
+            </div>
+            <div class="editor">
+              <div class="ed-tabs"><div class="ed-tab"><span class="d"></span>revenue.sql</div><div class="sp"></div><span class="ed-hint mono">PostgreSQL 16</span></div>
+              <div class="code mono" id="sqlCode"></div>
+            </div>
+            <div class="card results" id="sqlRes">
+              <div class="res-h"><span><b>Results</b> · 3 rows</span><span class="mono" id="sqlMs">— ms</span></div>
+              <div class="grid"><table>
+                <thead><tr><th>customer_email</th><th>orders</th><th>revenue</th><th style="width:34%"></th></tr></thead>
+                <tbody id="sqlBody"></tbody>
+              </table></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═════ Scene 3: Auth ═════ -->
+        <div class="scene" data-scene="3">
+          <div class="auth">
+            <div class="prov-card">
+              <div class="h"><div><h3>Sign-in methods</h3><p>Turn a provider on and it works in your app right away</p></div></div>
+              <div class="card prov">
+                <div class="prov-row">
+                  <div class="prov-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></div>
+                  <div class="t"><b>Email one-time code</b><small>Passwordless — a 6-digit code to the inbox</small></div>
+                  <div class="toggle" id="auOtpT"></div>
+                </div>
+                <div class="prov-more" id="auOtpMore">
+                  <div class="g2">
+                    <div><div class="lbl">Code length</div><div class="field">6 digits</div></div>
+                    <div><div class="lbl">Valid for</div><div class="field">10 minutes</div></div>
+                  </div>
+                </div>
+                <div class="prov-row">
+                  <div class="prov-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
+                  <div class="t"><b>Google account</b><small>Let people sign in with their Gmail address</small></div>
+                  <div class="toggle" id="auGT"></div>
+                </div>
+                <div class="prov-more" id="auGMore">
+                  <div class="lbl">OAuth client ID</div>
+                  <div class="field mono" id="auGId" style="font-size:12px"><span class="ph">paste from Google Cloud console</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="device" id="auDevice">
+              <div class="mail" id="auMail">
+                <div class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></div>
+                <div><b>Gmail · Acme Store</b><small>Your sign-in code is <strong>482913</strong>. It expires in 10 minutes.</small></div>
+              </div>
+              <div class="app-n"><i></i>Acme Store</div>
+              <h4 id="auH">Welcome back</h4>
+              <p class="muted" id="auP">Sign in to see your orders</p>
+              <div id="auForm">
+                <button class="btn wbtn oauth" id="auGoogle" style="margin-bottom:12px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>Continue with Google</button>
+                <div class="or" style="margin-bottom:12px">or</div>
+                <div class="lbl">Email</div>
+                <div class="field" id="auEmail" style="margin-bottom:12px"><span class="ph">you@example.com</span></div>
+                <button class="btn primary wbtn" id="auSend">Email me a code</button>
+              </div>
+              <div id="auCode" class="hide">
+                <div class="lbl">Enter the 6-digit code</div>
+                <div class="otp" id="auOtp"><div></div><div></div><div></div><div></div><div></div><div></div></div>
+              </div>
+              <div id="auDone" class="signed hide"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m5 12 5 5 9-10"/></svg></i>Signed in as priya@gmail.com</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+(() => {
+  const root = document.getElementById('appstack-showcase');
+  const $ = (s, el = root) => el.querySelector(s);
+  const $$ = (s, el = root) => [...el.querySelectorAll(s)];
+  const stage = $('#stage'), cursor = $('#cursor'), toast = $('#toast');
+  const tabs = $$('.as-tab'), scenes = $$('.scene'), navs = $$('.as-nav[data-nav]');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const PATHS = ['auth/phone', 'tables', 'sql', 'auth/providers'];
+  const DUR = [12000, 12500, 10500, 13500];   // ms per scene incl. a short hold at the end
+  const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="m5 12 5 5 9-10"/></svg>';
+
+  /* ── run control: switching tabs cancels the running script ── */
+  let runId = 0, current = 0, started = 0, rafId = 0, visible = false;
+  class Cancel extends Error {}
+  const live = id => { if (id !== runId) throw new Cancel(); };
+  const wait = (ms, id) => new Promise((res, rej) => setTimeout(() => id !== runId ? rej(new Cancel()) : res(), reduce ? 0 : ms));
+
+  async function type(el, text, id, speed = 38, keepCaret = false) {
+    el.innerHTML = ''; const span = document.createElement('span'); el.appendChild(span);
+    const c = document.createElement('i'); c.className = 'caret'; el.appendChild(c);
+    for (const ch of text) { live(id); span.textContent += ch; await wait(speed + Math.random() * 25, id); }
+    if (!keepCaret) c.remove();
+  }
+  // typed code with syntax tokens: lines = [[ [cls,text], ... ], ...]
+  async function typeCode(el, lines, id, speed = 18) {
+    el.innerHTML = '';
+    const caret = document.createElement('i'); caret.className = 'caret';
+    for (let n = 0; n < lines.length; n++) {
+      const ln = document.createElement('div'); ln.className = 'ln';
+      ln.innerHTML = `<b>${n + 1}</b><span></span>`; el.appendChild(ln);
+      const body = ln.lastChild; body.appendChild(caret);
+      for (const [cls, txt] of lines[n]) {
+        const t = document.createElement('span'); t.className = 'tk-' + cls; body.insertBefore(t, caret);
+        for (const ch of txt) { live(id); t.textContent += ch; await wait(ch === ' ' ? speed / 2 : speed, id); }
+      }
+      await wait(90, id);
+    }
+    return caret;
+  }
+  function moveTo(el, id, dx = 0.55, dy = 0.6) {
+    live(id);
+    const s = stage.getBoundingClientRect(), r = el.getBoundingClientRect();
+    cursor.classList.add('on');
+    cursor.style.transform = `translate(${r.left - s.left + r.width * dx}px, ${r.top - s.top + r.height * dy}px)`;
+    return wait(720, id);
+  }
+  async function click(el, id) {
+    await moveTo(el, id);
+    cursor.classList.remove('click'); void cursor.offsetWidth; cursor.classList.add('click');
+    el.classList.add('press'); await wait(160, id); el.classList.remove('press');
+  }
+  async function showToast(text, id) {
+    $('#toastText').textContent = text; toast.classList.add('on');
+    await wait(1600, id); toast.classList.remove('on');
+  }
+  function park() { cursor.classList.remove('on'); }
+
+  /* ════════ Scene 1: Table editor ════════ */
+  const T1 = {
+    reset() {
+      $('#teDrawer').classList.remove('on'); $('#teOrders').classList.add('hide');
+      $$('.te-item').forEach(e => e.classList.remove('on')); $$('.te-item')[1].classList.add('on');
+      $('#teName').innerHTML = '<span class="ph">e.g. orders</span>'; $('#teName').classList.remove('focus');
+      $('#teCols').innerHTML = ''; $('#teRlsT').classList.remove('on');
+      $('#teGrid').classList.remove('ord'); $('#teGridTitle').textContent = 'products'; $('#teGridSub').textContent = '4 columns · RLS on';
+      $('#teHead').innerHTML = '<tr><th>id<small>int8</small></th><th>name<small>text</small></th><th>price<small>numeric</small></th><th>stock<small>int4</small></th></tr>';
+      $('#teBody').innerHTML = '<tr><td>1</td><td>Linen shirt</td><td>1,499</td><td>42</td></tr><tr><td>2</td><td>Canvas tote</td><td>699</td><td>118</td></tr><tr><td>3</td><td>Clay mug</td><td>349</td><td>64</td></tr>';
+    },
+    cols: [
+      { n: 'id', t: 'int8', i: '#', d: 'identity', pk: true },
+      { n: 'created_at', t: 'timestamptz', i: '◷', d: 'now()' },
+      { n: 'customer_email', t: 'text', i: 'T', d: 'NULL' },
+      { n: 'total', t: 'numeric', i: '#', d: '0' },
+    ],
+    colRow(c) {
+      const r = document.createElement('div'); r.className = 'row pop' + (c.pk ? ' pk' : '');
+      r.innerHTML = `<span class="grip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 8h14M5 12h14M5 16h14"/></svg></span>
+        <div class="field mono" style="font-size:12.5px"></div>
+        <div class="field typ"><em>${c.i}</em><span class="mono" style="font-size:12.5px">${c.t}</span></div>
+        <div class="field defv mono" style="font-size:12px;color:var(--text-3)">${c.d}</div>
+        <div class="chk${c.pk ? ' on' : ''}">${CHECK}</div>`;
+      return r;
+    },
+    async run(id) {
+      await wait(500, id);
+      await click($('#teNew'), id);
+      $('#teDrawer').classList.add('on'); await wait(550, id);
+      $('#teName').classList.add('focus');
+      await type($('#teName'), 'orders', id, 70); $('#teName').classList.remove('focus');
+      for (const c of this.cols) {
+        const r = this.colRow(c); $('#teCols').appendChild(r);
+        await type(r.children[1], c.n, id, 30); await wait(120, id);
+      }
+      await click($('#teRlsT'), id); $('#teRlsT').classList.add('on'); await wait(350, id);
+      await click($('#teSave'), id);
+      $('#teDrawer').classList.remove('on');
+      $('#teOrders').classList.remove('hide'); $$('.te-item').forEach(e => e.classList.remove('on')); $('#teOrders').classList.add('on','pop');
+      $('#teGrid').classList.add('ord'); $('#teGridTitle').textContent = 'orders'; $('#teGridSub').textContent = '4 columns · 0 rows';
+      $('#teHead').innerHTML = '<tr><th>id<small>int8</small></th><th>created_at<small>timestamptz</small></th><th>customer_email<small>text</small></th><th>total<small>numeric</small></th></tr>';
+      $('#teBody').innerHTML = ''; park();
+      showToast('Table "orders" created with RLS', id).catch(() => {});
+      const rows = [['1','2026-10-10 09:12','priya@gmail.com','2,198'],['2','2026-10-10 09:40','arjun@acme.dev','699'],['3','2026-10-10 10:05','meera@gmail.com','1,848']];
+      for (let k = 0; k < rows.length; k++) {
+        await wait(520, id);
+        const tr = document.createElement('tr'); tr.className = 'new';
+        tr.innerHTML = rows[k].map((v, j) => `<td class="${j === 1 ? 'dim' : ''}">${v}</td>`).join('');
+        $('#teBody').appendChild(tr); $('#teGridSub').textContent = `4 columns · ${k + 1} row${k ? 's' : ''}`;
+      }
+    },
+    final() { // static end state for reduced motion
+      this.reset(); $('#teOrders').classList.remove('hide'); $$('.te-item').forEach(e => e.classList.remove('on')); $('#teOrders').classList.add('on');
+      $('#teGrid').classList.add('ord'); $('#teGridTitle').textContent = 'orders'; $('#teGridSub').textContent = '4 columns · 3 rows';
+      $('#teHead').innerHTML = '<tr><th>id<small>int8</small></th><th>created_at<small>timestamptz</small></th><th>customer_email<small>text</small></th><th>total<small>numeric</small></th></tr>';
+      $('#teBody').innerHTML = '<tr><td>1</td><td class="dim">2026-10-10 09:12</td><td>priya@gmail.com</td><td>2,198</td></tr><tr><td>2</td><td class="dim">2026-10-10 09:40</td><td>arjun@acme.dev</td><td>699</td></tr><tr><td>3</td><td class="dim">2026-10-10 10:05</td><td>meera@gmail.com</td><td>1,848</td></tr>';
+    }
+  };
+
+  /* ════════ Scene 2: SQL editor ════════ */
+  const SQL = [
+    [['c', '-- who spends the most this week?']],
+    [['k', 'select'], ['p', ' customer_email, '], ['f', 'count'], ['p', '(*) '], ['k', 'as'], ['p', ' orders, '], ['f', 'sum'], ['p', '(total) '], ['k', 'as'], ['p', ' revenue']],
+    [['k', 'from'], ['p', ' orders']],
+    [['k', 'where'], ['p', ' created_at > '], ['f', 'now'], ['p', '() - '], ['k', 'interval'], ['s', " '7 days'"]],
+    [['k', 'group by'], ['p', ' customer_email']],
+    [['k', 'order by'], ['p', ' revenue '], ['k', 'desc'], ['p', ' '], ['k', 'limit'], ['p', ' '], ['n', '3'], ['p', ';']],
+  ];
+  const RES = [['priya@gmail.com', '6', '9,840', 100], ['meera@gmail.com', '4', '6,212', 63], ['arjun@acme.dev', '3', '2,097', 21]];
+  const T2 = {
+    reset() { $('#sqlCode').innerHTML = ''; $('#sqlRes').classList.remove('on'); $('#sqlBody').innerHTML = ''; $('#sqlMs').textContent = '— ms'; },
+    fill() {
+      $('#sqlBody').innerHTML = RES.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td class="mono">₹${r[2]}</td><td><div class="bar-cell"><span data-w="${r[3]}"></span></div></td></tr>`).join('');
+    },
+    async run(id) {
+      await wait(400, id);
+      const caret = await typeCode($('#sqlCode'), SQL, id, 16);
+      await wait(300, id); caret.remove();
+      await click($('#sqlRun'), id); park();
+      this.fill(); $('#sqlRes').classList.add('on'); $('#sqlMs').textContent = '8 ms';
+      await wait(120, id);
+      $$('#sqlBody .bar-cell span').forEach(s => s.style.width = s.dataset.w + '%');
+    },
+    final() {
+      const el = $('#sqlCode'); el.innerHTML = SQL.map((l, n) => `<div class="ln"><b>${n + 1}</b><span>${l.map(([c, t]) => `<span class="tk-${c}">${t}</span>`).join('')}</span></div>`).join('');
+      this.fill(); $('#sqlRes').classList.add('on'); $('#sqlMs').textContent = '8 ms';
+      $$('#sqlBody .bar-cell span').forEach(s => s.style.width = s.dataset.w + '%');
+    }
+  };
+
+  /* ════════ Scene 3: Auth ════════ */
+  const T3 = {
+    reset() {
+      ['#auOtpT', '#auGT'].forEach(s => $(s).classList.remove('on'));
+      ['#auOtpMore', '#auGMore'].forEach(s => $(s).classList.remove('on'));
+      $('#auGId').innerHTML = '<span class="ph">paste from Google Cloud console</span>';
+      $('#auMail').classList.remove('on'); $('#auForm').classList.remove('hide');
+      $('#auCode').classList.add('hide'); $('#auDone').classList.add('hide');
+      $('#auEmail').innerHTML = '<span class="ph">you@example.com</span>'; $('#auEmail').classList.remove('focus');
+      $$('#auOtp div').forEach(d => { d.textContent = ''; d.className = ''; });
+      $('#auH').textContent = 'Welcome back'; $('#auP').textContent = 'Sign in to see your orders';
+    },
+    async run(id) {
+      const wide = matchMedia('(min-width: 761px)').matches;
+      await wait(400, id);
+      await click($('#auOtpT'), id); $('#auOtpT').classList.add('on'); $('#auOtpMore').classList.add('on'); await wait(500, id);
+      await click($('#auGT'), id); $('#auGT').classList.add('on'); $('#auGMore').classList.add('on'); await wait(350, id);
+      if (wide) await type($('#auGId'), '41820…k3p.apps.googleusercontent.com', id, 22);
+      else $('#auGId').textContent = '41820…k3p.apps.googleusercontent.com';
+      showToast('Sign-in methods saved', id).catch(() => {});
+      await wait(500, id);
+      // end-user side
+      await moveTo($('#auEmail'), id); $('#auEmail').classList.add('focus');
+      await type($('#auEmail'), 'priya@gmail.com', id, 45); $('#auEmail').classList.remove('focus');
+      await click($('#auSend'), id); park();
+      $('#auForm').classList.add('hide'); $('#auCode').classList.remove('hide'); $('#auCode').classList.add('pop');
+      $('#auH').textContent = 'Check your inbox'; $('#auP').textContent = 'We sent a code to priya@gmail.com';
+      await wait(700, id); $('#auMail').classList.add('on');
+      await wait(1300, id);
+      const digits = '482913', boxes = $$('#auOtp div');
+      for (let k = 0; k < 6; k++) { boxes[k].textContent = digits[k]; boxes[k].className = 'f'; await wait(170, id); }
+      await wait(350, id); $('#auMail').classList.remove('on');
+      $('#auCode').classList.add('hide'); $('#auDone').classList.remove('hide'); $('#auDone').classList.add('pop');
+      $('#auH').textContent = "You're in"; $('#auP').textContent = 'Session issued · refresh token rotates automatically';
+    },
+    final() {
+      this.reset(); ['#auOtpT', '#auGT'].forEach(s => $(s).classList.add('on')); ['#auOtpMore', '#auGMore'].forEach(s => $(s).classList.add('on'));
+      $('#auGId').textContent = '41820…k3p.apps.googleusercontent.com';
+      $('#auForm').classList.add('hide'); $('#auDone').classList.remove('hide');
+      $('#auH').textContent = "You're in"; $('#auP').textContent = 'Session issued · refresh token rotates automatically';
+    }
+  };
+
+  /* ════════ Scene 0: Phone OTP ════════ */
+  const TP = {
+    reset() {
+      $('#phT').classList.remove('on'); $('#phMore').classList.remove('on');
+      $('#phProv').innerHTML = '<span class="ph">Choose…</span>'; $('#phSender').innerHTML = '<span class="ph">ACMEST</span>';
+      $('#phSms').classList.remove('on'); $('#phForm').classList.remove('hide');
+      $('#phCode').classList.add('hide'); $('#phDone').classList.add('hide');
+      $('#phNum').innerHTML = '<span class="ph">98765 43210</span>'; $('#phNum').classList.remove('focus');
+      $$('#phOtp div').forEach(d => { d.textContent = ''; d.className = ''; });
+      $('#phH').textContent = 'Sign in with your phone'; $('#phP').textContent = "We'll text you a code";
+    },
+    async run(id) {
+      await wait(400, id);
+      await click($('#phT'), id); $('#phT').classList.add('on'); $('#phMore').classList.add('on'); await wait(450, id);
+      await type($('#phProv'), 'MSG91', id, 55);
+      await type($('#phSender'), 'ACMEST', id, 55);
+      showToast('Phone sign-in enabled', id).catch(() => {});
+      await wait(400, id);
+      await moveTo($('#phNum'), id); $('#phNum').classList.add('focus');
+      await type($('#phNum'), '98765 43210', id, 55); $('#phNum').classList.remove('focus');
+      await click($('#phSend'), id); park();
+      $('#phForm').classList.add('hide'); $('#phCode').classList.remove('hide'); $('#phCode').classList.add('pop');
+      $('#phH').textContent = 'Enter your code'; $('#phP').textContent = 'Sent to +91 98765 43210';
+      await wait(700, id); $('#phSms').classList.add('on');
+      await wait(1300, id);
+      const digits = '730254', boxes = $$('#phOtp div');
+      for (let k = 0; k < 6; k++) { boxes[k].textContent = digits[k]; boxes[k].className = 'f'; await wait(170, id); }
+      await wait(350, id); $('#phSms').classList.remove('on');
+      $('#phCode').classList.add('hide'); $('#phDone').classList.remove('hide'); $('#phDone').classList.add('pop');
+      $('#phH').textContent = "You're in"; $('#phP').textContent = 'Number verified · session issued';
+    },
+    final() {
+      this.reset(); $('#phT').classList.add('on'); $('#phMore').classList.add('on');
+      $('#phProv').textContent = 'MSG91'; $('#phSender').textContent = 'ACMEST';
+      $('#phForm').classList.add('hide'); $('#phDone').classList.remove('hide');
+      $('#phH').textContent = "You're in"; $('#phP').textContent = 'Number verified · session issued';
+    }
+  };
+
+  const SCENES = [TP, T1, T2, T3];
+
+  /* ── orchestration ── */
+  function select(i) {
+    current = i;
+    tabs.forEach((t, k) => { t.setAttribute('aria-selected', k === i); t.querySelector('.bar').style.width = '0'; });
+    scenes.forEach((s, k) => s.classList.toggle('on', k === i));
+    navs.forEach(n => n.classList.toggle('on', n.dataset.nav.split(' ').includes(String(i))));
+    $('#urlPath').textContent = PATHS[i];
+    toast.classList.remove('on'); park();
+  }
+  function progress() {
+    const p = Math.min(1, (performance.now() - started) / DUR[current]);
+    tabs[current].querySelector('.bar').style.width = (p * 100) + '%';
+    if (p < 1) rafId = requestAnimationFrame(progress);
+  }
+  async function play(i) {
+    const id = ++runId; cancelAnimationFrame(rafId);
+    select(i); SCENES[i].reset();
+    if (reduce) { SCENES[i].final(); return; }     // no auto-advance, no motion
+    started = performance.now(); rafId = requestAnimationFrame(progress);
+    try {
+      await SCENES[i].run(id);
+      const left = DUR[i] - (performance.now() - started);
+      await wait(Math.max(1200, left), id);
+      if (visible) play((i + 1) % SCENES.length); else pending = (i + 1) % SCENES.length;
+    } catch (e) { if (!(e instanceof Cancel)) console.error(e); }
+  }
+  let pending = null;
+  tabs.forEach(t => t.addEventListener('click', () => play(+t.dataset.i)));
+  // keyboard: arrows move between tabs
+  root.querySelector('.as-tabs').addEventListener('keydown', e => {
+    if (!['ArrowRight', 'ArrowLeft'].includes(e.key)) return;
+    const n = (current + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[n].focus(); play(n);
+  });
+
+  // only animate while the section is on screen
+  let first = true;
+  new IntersectionObserver(([en]) => {
+    visible = en.isIntersecting;
+    if (visible && first) { first = false; play(0); }
+    else if (visible && pending !== null) { const n = pending; pending = null; play(n); }
+  }, { threshold: .25 }).observe(root);
+
+  select(0); SCENES[0].reset();
+  if (reduce) SCENES[0].final();
+})();
+</script>
+</body>
+</html>
