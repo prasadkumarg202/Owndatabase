@@ -4,7 +4,10 @@ import {
   ArrowRight, BadgeIndianRupee, Bell, Boxes, Check, CheckCircle2, Clock, CloudUpload, Code2,
   Database, FileText, Gauge, HardDrive, KeyRound, Mail, MessageSquareText, Moon, Radio,
   Receipt, Rocket, ShieldCheck, Smartphone, Sparkles, Sprout, TrendingUp, Webhook, Zap,
+  Bot, Building2, GraduationCap, Home, Landmark, Layers, ShoppingBag, Trophy, Users,
 } from 'lucide-react';
+import { ShowcaseFrame } from '@/components/home/ShowcaseFrame';
+import { SiteNav } from '@/components/home/SiteNav';
 
 export const metadata: Metadata = {
   title: { absolute: 'AapStack | Backend for startups: database, OTP, SMS, email and APIs, hosted in India' },
@@ -70,30 +73,28 @@ const builtins = [
   { icon: Clock, label: 'Cron & queues' }, { icon: FileText, label: 'Backups & PITR' },
 ];
 
+const audiences = [
+  { id: 'for-startups', icon: Rocket, title: 'Startups', body: 'Launch an MVP on the free plan, add phone OTP and payments-ready billing when customers arrive, and never re-platform as you grow.' },
+  { id: 'for-agencies', icon: Users, title: 'Agencies', body: 'One organization, a separate project per client. Hand over the dashboard, keys and GST invoices when the work is done.' },
+  { id: 'for-hackathons', icon: Trophy, title: 'Hackathon teams', body: 'Database, login and APIs in minutes, so the weekend goes into the idea instead of the setup. Free projects never pause after the demo.' },
+  { id: 'for-business', icon: Building2, title: 'Growing businesses', body: 'Point-in-time backups, high-availability PostgreSQL, SAML single sign-on and audit logs when bigger customers start asking questions.' },
+];
+
+const appTypes = [
+  { id: 'app-saas', icon: Layers, title: 'SaaS & B2B', body: 'Teams, roles and Row Level Security per customer.' },
+  { id: 'app-marketplace', icon: ShoppingBag, title: 'Marketplaces & e-commerce', body: 'Listings, orders, image uploads and realtime stock.' },
+  { id: 'app-realestate', icon: Home, title: 'Real estate & listings', body: 'PostGIS radius search, photo galleries and lead capture.' },
+  { id: 'app-fintech', icon: Landmark, title: 'Fintech & payments', body: 'Phone OTP, MFA, audit logs and webhooks to your payment gateway.' },
+  { id: 'app-edtech', icon: GraduationCap, title: 'EdTech', body: 'Student logins, course files, live classes with realtime presence.' },
+  { id: 'app-ai', icon: Bot, title: 'AI apps & agents', body: 'pgvector embeddings next to your data, and an MCP server for agents.' },
+];
+
 /* ── Page ───────────────────────────────────────────────────────────────── */
 
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-white text-slate-900 antialiased">
-      {/* Nav */}
-      <header className="absolute inset-x-0 top-0 z-30">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 shadow-lg shadow-blue-500/30"><Database className="h-4 w-4 text-white" /></span>
-            <span className="text-lg font-semibold tracking-tight text-white">AapStack</span>
-          </Link>
-          <nav className="hidden items-center gap-7 text-sm text-slate-300 md:flex">
-            <a href="#integrations" className="hover:text-white">Integrations</a>
-            <a href="#journey" className="hover:text-white">For startups</a>
-            <a href="#pricing" className="hover:text-white">Pricing</a>
-            <a href="/api/docs" className="hover:text-white">Docs</a>
-          </nav>
-          <div className="flex items-center gap-2">
-            <Link href="/login" className="px-3 py-2 text-sm text-slate-200 hover:text-white">Sign in</Link>
-            <Link href="/login?mode=signup" className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-blue-50">Start free</Link>
-          </div>
-        </div>
-      </header>
+      <SiteNav />
 
       {/* Hero */}
       <section className="relative overflow-hidden bg-slate-950 pb-20 pt-32 text-white sm:pt-36">
@@ -161,6 +162,13 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* Showcase */}
+      <section id="showcase" className="scroll-mt-8 border-b border-slate-100 bg-white">
+        <div className="mx-auto max-w-6xl px-0 pt-10 sm:px-4">
+          <ShowcaseFrame />
+        </div>
+      </section>
+
       {/* Integrations */}
       <section id="integrations" className="mx-auto max-w-6xl scroll-mt-8 px-4 py-24">
         <p className="text-sm font-semibold uppercase tracking-wider text-blue-600">Integrations</p>
@@ -200,6 +208,32 @@ export default function HomePage() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* Solutions */}
+      <section id="solutions" className="scroll-mt-8 mx-auto max-w-6xl px-4 py-24">
+        <p className="text-sm font-semibold uppercase tracking-wider text-blue-600">Solutions</p>
+        <h2 className="mt-2 max-w-2xl text-3xl font-bold tracking-tight sm:text-4xl">Made for the way you build</h2>
+        <div className="mt-12 grid gap-5 sm:grid-cols-2">
+          {audiences.map(({ id, icon: Icon, title, body }) => (
+            <div key={id} id={id} className="scroll-mt-24 flex gap-4 rounded-2xl border border-slate-200 p-6">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white"><Icon className="h-5 w-5" /></span>
+              <div>
+                <h3 className="text-lg font-semibold">{title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{body}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <h3 className="mt-16 text-xl font-semibold">Popular app types</h3>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {appTypes.map(({ id, icon: Icon, title, body }) => (
+            <div key={id} id={id} className="scroll-mt-24 rounded-xl border border-slate-200 bg-slate-50 p-5 transition hover:border-blue-300 hover:bg-white">
+              <div className="flex items-center gap-2.5"><Icon className="h-4 w-4 text-blue-600" /><h4 className="font-semibold">{title}</h4></div>
+              <p className="mt-2 text-sm text-slate-600">{body}</p>
+            </div>
+          ))}
         </div>
       </section>
 
