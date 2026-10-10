@@ -239,7 +239,7 @@ export default function HomePage() {
             <div className="relative rounded-2xl border-2 border-blue-500 bg-white p-8 shadow-xl shadow-blue-500/10">
               <span className="absolute -top-3 right-6 rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">For growing startups</span>
               <p className="font-semibold">Pro</p>
-              <p className="mt-2 text-4xl font-bold">$25<span className="text-base font-normal text-slate-500"> / month</span></p>
+              <p className="mt-2 text-4xl font-bold">$22.50<span className="text-base font-normal text-slate-500"> / month</span></p>
               <p className="mt-2 text-sm text-slate-500">Billed with a GST invoice. Pay by UPI, card or netbanking.</p>
               <ul className="mt-6 space-y-2.5 text-sm text-slate-700">
                 {['10 projects', '8 GB database, 100 GB file storage', '5 million API requests a month', '2 million function calls a month', '1,000 realtime connections'].map((t) => (
