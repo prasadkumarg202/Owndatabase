@@ -9,6 +9,7 @@ import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
+import { DOCS_INTRO } from './docs-intro.js';
 
 import { config } from './config.js';
 import { logger } from './lib/logger.js';
@@ -72,7 +73,7 @@ export async function buildApp() {
   await server.register(swagger, {
     openapi: {
       openapi: '3.1.0',
-      info: { title: 'OwnDatabase Control API', version: '0.2.0', description: 'Manage organizations, projects, databases, auth, storage, backups, functions and queues.' },
+      info: { title: 'AapStack API', version: '0.2.0', description: DOCS_INTRO },
       servers: [{ url: '/' }],
       components: {
         securitySchemes: {
