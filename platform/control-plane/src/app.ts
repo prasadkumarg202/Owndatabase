@@ -83,6 +83,13 @@ export async function buildApp() {
       },
     },
   });
+  // swagger-ui writes asset URLs relative to the page: without the trailing slash they
+  // resolve to /api/api/docs/static/… (404) and the docs render as a blank page
+  server.addHook('onRequest', async (request, reply) => {
+    if (request.url === '/api/docs' || request.url.startsWith('/api/docs?')) {
+      return reply.redirect(301, request.url.replace('/api/docs', '/api/docs/'));
+    }
+  });
   await server.register(swaggerUi, { routePrefix: '/api/docs', uiConfig: { docExpansion: 'list', deepLinking: true } });
 
   await server.register(metricsPlugin);
