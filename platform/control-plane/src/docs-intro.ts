@@ -81,11 +81,11 @@ curl -X POST "https://aapstack.tech/p/<project-id>/auth/v1/verify" -H "apikey: <
 \`\`\`
 
 **Email (code or magic link).** \`POST /auth/v1/otp\` with \`{"email": "..."}\` emails a 6-digit code and a
-sign-in link. Verify the code with \`type: "magiclink"\`:
+sign-in link. Verify the code with \`type: "email"\` (what supabase-js sends) or \`type: "magiclink"\`:
 
 \`\`\`bash
 curl -X POST "https://aapstack.tech/p/<project-id>/auth/v1/verify" -H "apikey: <anon-key>" \\
-  -H "Content-Type: application/json" -d '{"type":"magiclink","email":"priya@gmail.com","token":"482913"}'
+  -H "Content-Type: application/json" -d '{"type":"email","email":"priya@gmail.com","token":"482913"}'
 \`\`\`
 
 Email is delivered over SMTP (Gmail with an app password, Zoho Mail, Resend or your own server).

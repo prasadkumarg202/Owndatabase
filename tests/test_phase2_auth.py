@@ -139,6 +139,17 @@ def test_magic_link_code(project, dev_mailbox):
 
 
 @pytest.mark.devmailbox
+def test_email_otp_verifies_with_type_email(project, dev_mailbox):
+    # supabase-js: signInWithOtp({ email }) then verifyOtp({ email, token, type: 'email' })
+    email = f"otp-{uuid.uuid4().hex[:6]}@example.com"
+    assert project.auth("POST", "otp", json={"email": email}).status_code == 200
+    mail = dev_mailbox(project, email, "magiclink")
+    r = project.auth("POST", "verify", json={"type": "email", "email": email, "token": mail["meta"]["code"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["user"]["email_verified"] is True
+
+
+@pytest.mark.devmailbox
 def test_magic_link_url_redirects_with_tokens(project, dev_mailbox):
     email = f"link-{uuid.uuid4().hex[:6]}@example.com"
     project.auth("POST", "otp", json={"email": email})

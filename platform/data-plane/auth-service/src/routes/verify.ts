@@ -34,12 +34,14 @@ type VerifyResult = { ok: true; user: UserRow; type: string } | { ok: false; sta
 async function consume(project: ProjectInfo, type: string, match: { email?: string; phone?: string; code?: string; linkToken?: string }): Promise<VerifyResult> {
   const otpType = TYPE_MAP[type];
   if (!otpType) return { ok: false, status: 400, message: `Unknown verification type '${type}'` };
+  // supabase-js verifies emailed sign-in codes with type 'email'; POST /otp stores them as magic_link
+  const altType: OtpType = type === 'email' ? 'magic_link' : otpType;
 
   const [rec] = match.linkToken
-    ? await db`SELECT * FROM auth.otp_codes WHERE project_id = ${project.id} AND type = ${otpType} AND token_hash = ${hashOTP(match.linkToken)} AND used_at IS NULL ORDER BY created_at DESC LIMIT 1`
+    ? await db`SELECT * FROM auth.otp_codes WHERE project_id = ${project.id} AND (type = ${otpType} OR type = ${altType}) AND token_hash = ${hashOTP(match.linkToken)} AND used_at IS NULL ORDER BY created_at DESC LIMIT 1`
     : match.phone
-      ? await db`SELECT * FROM auth.otp_codes WHERE project_id = ${project.id} AND type = ${otpType} AND phone = ${match.phone} AND used_at IS NULL ORDER BY created_at DESC LIMIT 1`
-      : await db`SELECT * FROM auth.otp_codes WHERE project_id = ${project.id} AND type = ${otpType} AND lower(email) = lower(${match.email ?? ''}) AND used_at IS NULL ORDER BY created_at DESC LIMIT 1`;
+      ? await db`SELECT * FROM auth.otp_codes WHERE project_id = ${project.id} AND (type = ${otpType} OR type = ${altType}) AND phone = ${match.phone} AND used_at IS NULL ORDER BY created_at DESC LIMIT 1`
+      : await db`SELECT * FROM auth.otp_codes WHERE project_id = ${project.id} AND (type = ${otpType} OR type = ${altType}) AND lower(email) = lower(${match.email ?? ''}) AND used_at IS NULL ORDER BY created_at DESC LIMIT 1`;
 
   if (!rec) return { ok: false, status: 400, message: 'Invalid or expired token' };
   if (new Date(rec['expires_at'] as string) < new Date()) return { ok: false, status: 400, message: 'Token has expired' };
